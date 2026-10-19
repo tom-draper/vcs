@@ -1,0 +1,144 @@
+---
+description: Routing is how routers fill in their tables, so that each one knows which neighbour to hand a packet to for any destination. Inside a network, routers share distances or maps and compute shortest paths. Between networks, BGP lets tens of thousands of independent operators agree on paths by policy.
+difficulty: intermediate
+---
+
+A router [forwards](/networking/ip-addressing/) a packet by looking up its destination in a table: for this prefix, send it out of that link. Forwarding is fast and simple, and it is done billions of times a second. It also assumes the table is right.
+
+Something has to fill in those tables, and keep them right as links fail, routers reboot and new networks appear. Nobody types them in by hand for the internet's million prefixes. **Routing** is the process by which routers talk to each other and work out, for every destination, which neighbour is the best next step.
+
+## Forwarding and routing
+
+The two jobs are worth keeping apart.
+
+| | Forwarding | Routing |
+| --- | --- | --- |
+| Question | Where does this packet go next? | What should the table say? |
+| How often | every packet | when the network changes |
+| Speed | nanoseconds, in hardware | seconds, in software |
+| Scope | one router, one table | the whole network |
+
+Each router only ever chooses the **next hop**. No router plans a packet's whole journey. A path across the internet exists only because every router along it independently picked a neighbour that is closer to the destination.
+
+## The network as a graph
+
+Routers are vertices and links are edges, each with a **cost**: often 1 per hop, or something inversely related to the link's speed, so fast links look short. Routing is then a [shortest-path problem](/foundations/graph-theory/), solved continuously, by many routers at once, without any of them seeing the whole graph at first.
+
+There are two classic ways to solve it.
+
+## Distance vector
+
+In **distance-vector** routing, each router keeps a table of how far it believes every destination is, and periodically sends that table to its neighbours. When router B hears from neighbour A that A can reach G at cost 3, and the link from B to A costs 1, then B can reach G at cost 4 through A. B keeps whichever neighbour offers the cheapest total.
+
+```
+dist(B, G) = min over neighbours N of  cost(B, N) + dist(N, G)
+```
+
+This is the [Bellman-Ford](/algorithms/bellman-ford/) relaxation step, run in a distributed way, with each router doing its own row of the table.
+
+<RoutingDemo />
+
+At first every router knows only itself. Step through the rounds. After one round, C knows G is one hop away. After two, B and F know too. News of each destination spreads outwards one link per round, and the arrows settle into a tree of shortest paths leading to G. Click another router to see the tree for that destination, which is entirely different.
+
+RIP, the Routing Information Protocol, works this way. It is simple and needs no knowledge of the wider network. But it has a serious flaw.
+
+## Counting to infinity
+
+Let the network converge, then click the C–G link to cut it. C now has no direct route to G. But in the same round, C hears from B that B can reach G at cost 2. B learned that from C, so it is a route through the link that has just gone, but C has no way to know. C believes B, and sets its own distance to 3, through B. Next round, B hears C's 3 and raises its own to 4. The two (and their neighbours) bounce a dead route back and forth, adding a little each time.
+
+This is **counting to infinity**. Good news, such as a new link, spreads one hop per round. Bad news spreads only as fast as the distances climb to some agreed "infinity". RIP sets infinity at 16 hops, which is also why a RIP network cannot be more than 15 hops across. Until the count reaches it, packets for G loop between routers until their **TTL** runs out.
+
+**Split horizon** is the standard patch: never advertise a route back to the neighbour you learned it from. With **poisoned reverse**, a router goes further and tells that neighbour the route is unreachable. Turn it on in the widget. It stops two routers bouncing a route between them, but in a network with loops of three or more, as here, the bad news can still travel round the loop and the count still climbs.
+
+## Link state
+
+**Link-state** routing avoids the problem by sharing facts instead of conclusions. Each router tells everyone, not just its neighbours, about its own links: "I am B, and I have links to A at cost 1, to C at cost 1 and to E at cost 2." These **link-state advertisements** are flooded through the whole network, each router passing on any it has not seen before.
+
+Every router ends up with the same map of the entire network, and runs [Dijkstra's algorithm](/algorithms/dijkstras-algorithm/) on it to find its own shortest paths. When a link fails, the two routers at its ends flood the news, everyone recomputes, and the network converges in about the time it takes the flood to cross it. There are no rumours to unlearn.
+
+OSPF and IS-IS, the protocols used inside most large networks, are link-state.
+
+| | Distance vector | Link state |
+| --- | --- | --- |
+| What is shared | my distance to everything | my own links |
+| Shared with | neighbours | everyone |
+| Each router knows | its neighbours' claims | the whole map |
+| Computation | Bellman-Ford, a step at a time | Dijkstra on the full map |
+| After a failure | can count to infinity | fast, once the flood arrives |
+| Examples | RIP | OSPF, IS-IS |
+
+## Between networks: BGP
+
+Both approaches assume one operator who can see, or at least trust, the whole network. The internet is not like that. It is about 75,000 **autonomous systems** (AS), each a network run by one organisation, such as an internet provider, a university or a cloud company, and each identified by a number. Inside, each AS runs OSPF or IS-IS as it likes. Between them runs one protocol, the **Border Gateway Protocol** (BGP).
+
+BGP is a **path-vector** protocol. Like distance vector, each AS tells its neighbours what it can reach. But instead of a distance, it advertises the whole path of AS numbers the route passes through:
+
+```
+203.0.113.0/24   via AS 3356, AS 1299, AS 64500
+```
+
+Carrying the path fixes counting to infinity: an AS that sees its own number in a path rejects it, because accepting would make a loop.
+
+The bigger difference is that BGP is about **policy**, not shortest paths. Networks are businesses. A provider is paid by its customers, pays its own upstream providers, and swaps traffic for free with **peers** of similar size. So it prefers routes through customers (which earn money), then peers (free), then providers (which cost money), and it only tells its providers and peers about its customers' routes, so it does not end up carrying traffic it is not paid for. Path length is only a tie-breaker.
+
+## When BGP goes wrong
+
+BGP mostly trusts what neighbours announce, which has caused some memorable outages.
+
+**Route leaks and hijacks.** In 2008, Pakistan Telecom tried to block YouTube inside Pakistan by announcing a more specific route for YouTube's addresses. The announcement leaked to the wider internet, and longest prefix match did the rest: much of the world sent YouTube's traffic to Pakistan for about two hours. **RPKI** now lets networks check that an AS is authorised to announce a prefix, and is steadily being adopted.
+
+**Withdrawing yourself.** In 2021, a configuration change made Facebook's routers withdraw the BGP routes for its own DNS servers. The rest of the internet promptly forgot how to reach them, and Facebook, Instagram and WhatsApp vanished for about six hours.
+
+## Implementation
+
+A distance-vector round, with split horizon:
+
+```python
+INFINITY = 16
+
+def round_of_updates(routers, links, dist, nxt, split_horizon=True):
+    new_dist, new_next = {}, {}
+    for r in routers:
+        new_dist[r], new_next[r] = {}, {}
+        for d in routers:
+            if r == d:
+                new_dist[r][d], new_next[r][d] = 0, None
+                continue
+            best, via = INFINITY, None
+            for n, cost in links[r]:            # only neighbours are heard
+                offer = dist[n][d]
+                if split_horizon and nxt[n][d] == r:
+                    offer = INFINITY            # poisoned reverse
+                if cost + offer < best:
+                    best, via = cost + offer, n
+            new_dist[r][d], new_next[r][d] = best, via
+    return new_dist, new_next
+```
+
+## Costs
+
+<Ops items={[
+  ['Distance vector, one round', 'O(degree × destinations)', 'per router'],
+  ['Distance vector, convergence', 'up to diameter rounds', 'or until infinity, after a failure'],
+  ['Link state, flooding', 'O(links)', 'messages per change'],
+  ['Link state, computation', 'O(E log V)', 'Dijkstra on the whole map'],
+  ['Forwarding lookup', 'O(address bits)', 'longest prefix match'],
+]} />
+
+## Where it is used
+
+**Inside networks.** Data centres, internet providers and large companies run OSPF or IS-IS. Many data centres now run BGP internally too, because it scales well and gives fine control.
+
+**Between networks.** Every route between autonomous systems is carried by BGP. A full internet routing table has over a million IPv4 and over two hundred thousand IPv6 prefixes.
+
+**Anycast.** [CDNs](/networking/cdns/) and public DNS resolvers announce the same prefix from many locations, and BGP delivers each user to the nearest one.
+
+**Software-defined networking.** Some operators, notably Google's internal wide-area network, take routing decisions away from individual routers and compute them centrally, with a global view of traffic.
+
+## Key takeaways
+
+- Forwarding picks the next hop for each packet. Routing builds the tables that forwarding uses.
+- Distance-vector routers tell their neighbours their distance to every destination. It is simple, but after a failure it can count to infinity.
+- Link-state routers flood their own links to everyone, so every router has the full map and runs Dijkstra.
+- The internet is made of autonomous systems that connect with BGP, a path-vector protocol.
+- BGP chooses routes by business policy first and path length second, and largely trusts what neighbours announce.
