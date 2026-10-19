@@ -1,0 +1,121 @@
+---
+description: A neural network is layers of simple units, each taking a weighted sum of its inputs and bending it with a nonlinear function. Stacking them lets the network carve out any shape of decision, and gradient descent finds the weights.
+difficulty: intermediate
+---
+
+[Linear regression](/machine-learning/linear-regression/) predicts with a weighted sum of its inputs. That makes it easy to fit and easy to understand, and it also caps what it can learn. A weighted sum can only ever describe a flat trend: a straight line, a flat plane.
+
+Plenty of patterns are not flat. Whether a photo contains a cat depends on the pixels in ways no weighted sum of brightness values captures. A **neural network** keeps the weighted sum as its building block, and gets its power from bending each sum and stacking many of them.
+
+## One neuron
+
+A single **neuron**, or unit, does two things.
+
+```
+z = w₁x₁ + w₂x₂ + … + b        a weighted sum, as in linear regression
+a = f(z)                         then an activation function
+```
+
+For a yes-or-no question, a good choice of `f` is the **sigmoid**, σ(z) = 1 / (1 + e⁻ᶻ), which squashes any number into the range 0 to 1. The output can be read as a probability: how sure the neuron is that the answer is yes. Large positive z gives nearly 1, large negative z nearly 0, and z = 0 gives exactly one half.
+
+A single neuron with a sigmoid is called **logistic regression**. The points where it says exactly one half are where z = 0, and w₁x₁ + w₂x₂ + b = 0 is the equation of a straight line. So one neuron separates the plane into two halves with a straight boundary.
+
+## What one neuron cannot do
+
+The widget trains networks to tell two kinds of point apart. The shading shows what the network currently predicts at every spot: blue for one class, orange for the other, stronger where it is more confident. The diagram on the right shows the network, with each weight drawn as a line, blue for positive and orange for negative, thicker for larger.
+
+<NetworkDemo />
+
+It starts with no hidden units: a single neuron facing the **XOR** pattern, where the blue points sit in the top-right and bottom-left corners and the orange in the other two. Press Train.
+
+No straight line puts both blue corners on one side and both orange corners on the other. The neuron does the best a line can, and gets about 60% right. In 1969 Minsky and Papert proved results like this about single-layer networks, and interest in the field faded for over a decade.
+
+Switch to the "line" data and the same neuron solves it at once, because there a straight boundary exists.
+
+## Hidden layers
+
+The fix is to put a layer of neurons between the inputs and the output. Each **hidden unit** computes its own weighted sum of the inputs and bends it. The output neuron then takes a weighted sum of the hidden units, rather than of the raw inputs.
+
+Choose 2 or 4 hidden units on XOR and train again. Each hidden unit learns one straight boundary. The output combines them, saying something like "on the right side of this line and the right side of that one". Together, straight edges enclose regions that no single line could.
+
+On the circle data, two hidden units give two edges, which cannot surround a disc. Four can, roughly, and eight can draw a rounder one.
+
+<Aside title="Why the bend is essential">
+
+Without the activation function, a layer computes a weighted sum, and a weighted sum of weighted sums is just another weighted sum. However many layers you stacked, the network would still be one linear model. The nonlinearity, here tanh, is what lets layers build on each other.
+
+</Aside>
+
+The **universal approximation theorem** makes this precise. With enough hidden units, a network with a single hidden layer can approximate any continuous function on a bounded region as closely as you like. In practice it is far more efficient to use many layers of moderate width than one enormous layer. Each layer builds features from the previous layer's features: edges, then textures, then parts, then objects. Networks with many layers are what **deep learning** means.
+
+## Activation functions
+
+| Function | Formula | Range | Where you see it |
+| --- | --- | --- | --- |
+| Sigmoid | 1 / (1 + e⁻ᶻ) | 0 to 1 | output for yes-or-no answers |
+| tanh | (eᶻ − e⁻ᶻ) / (eᶻ + e⁻ᶻ) | −1 to 1 | hidden units in small networks, like this one |
+| ReLU | max(0, z) | 0 upwards | hidden units in most deep networks |
+| Softmax | eᶻⁱ / Σ eᶻʲ | probabilities that sum to 1 | output for choosing one of many classes |
+
+ReLU looks too simple to work: it is a straight line with a kink at zero. But the kinks are enough to bend the space, it is very cheap to compute, and its slope does not fade towards zero for large inputs the way sigmoid and tanh do, which keeps gradients healthy in deep networks.
+
+## Training
+
+A network's weights start random, which is why the shading begins as a meaningless guess. Training is the same loop as for any model.
+
+1. Run every training example forward through the network to get its predictions.
+2. Score them with a loss. For probabilities, the standard loss is **cross-entropy**, the average of −log(probability given to the right answer). A confident right answer costs nearly nothing, and a confident wrong one costs a lot.
+3. Work out how the loss changes as each weight changes, its gradient.
+4. Step every weight a little way downhill, as in [gradient descent](/machine-learning/gradient-descent/).
+
+Step 3 is the hard part. A network has a gradient for every weight, and a weight in an early layer affects the loss only through every layer after it. The method that computes all of them in one sweep is [backpropagation](/machine-learning/backpropagation/), the subject of the next page.
+
+Press "New random weights" and train a few times. The same network on the same data can end in different places, and occasionally a run stalls with one hidden unit doing nothing useful. The loss is not a single bowl, and where you start matters.
+
+## Costs
+
+<Ops items={[
+  ['Forward pass, one example', 'O(W)', 'W weights, one multiply-add each'],
+  ['Backward pass', 'about 2 × forward', 'the same multiplies, in reverse'],
+  ['One training epoch', 'O(nW)', 'n examples'],
+  ['Memory while training', 'O(W + activations)', 'activations kept for the backward pass'],
+]} />
+
+The forward pass of a whole layer is one matrix multiplication: the layer's weights times the vector of its inputs, or times a matrix of a whole batch of inputs. This is why neural networks run on [SIMD](/architecture/simd/) hardware and GPUs, which do thousands of multiply-adds at once.
+
+## Implementation
+
+```python
+import numpy as np
+
+def forward(x, W1, b1, w2, b2):
+    h = np.tanh(W1 @ x + b1)            # hidden layer
+    return 1 / (1 + np.exp(-(w2 @ h + b2)))   # output probability
+
+# Two inputs, four hidden units, one output.
+rng = np.random.default_rng(0)
+W1, b1 = rng.normal(size=(4, 2)), np.zeros(4)
+w2, b2 = rng.normal(size=4), 0.0
+forward(np.array([0.5, -0.5]), W1, b1, w2, b2)   # a random guess until trained
+```
+
+In practice you describe the layers in a framework such as PyTorch or JAX, and it computes the gradients for you.
+
+## Where it is used
+
+**Images.** Convolutional networks reuse the same small set of weights at every position of an image, so a feature like an edge is detected wherever it appears. They read handwriting, sort photographs and find tumours in scans.
+
+**Language.** Large language models are networks with billions of weights, trained to predict the next word of text. The **transformer** layers inside them let every word weigh up every other word in the passage.
+
+**Speech, translation and recommendation.** Voice assistants, machine translation and the ranking of what you see next on most apps are all neural networks.
+
+**Games and science.** Networks evaluate positions in Go and chess engines, and predict the shapes that proteins fold into.
+
+## Key takeaways
+
+- A neuron takes a weighted sum of its inputs and passes it through a nonlinear activation function.
+- One neuron draws a straight boundary, so it cannot learn patterns like XOR.
+- Hidden layers combine many simple boundaries into complicated ones. Without nonlinear activations, extra layers would add nothing.
+- With enough units, a network can approximate any continuous function. Deep networks build features in layers.
+- Networks are trained by gradient descent on a loss such as cross-entropy, with the gradients found by backpropagation.
+- Each layer is a matrix multiplication, which is why the hardware that runs them is built for exactly that.
