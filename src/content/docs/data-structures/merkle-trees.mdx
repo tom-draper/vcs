@@ -106,7 +106,7 @@ The work is proportional to the **amount that differs**, not to the size of the 
 
 ## Where it shows up
 
-**Git.** Every file is stored under the hash of its contents. A directory is a list of names and the hashes of its files and subdirectories, itself stored under its own hash. A commit points to a directory hash and to its parent commits. So a commit's identifier pins down the exact contents of every file in the project and the entire history before it. Two unchanged directories have the same hash, which is how Git compares large trees quickly and stores unchanged files only once.
+**[Git](/software-engineering/version-control/).** Every file is stored under the hash of its contents. A directory is a list of names and the hashes of its files and subdirectories, itself stored under its own hash. A commit points to a directory hash and to its parent commits. So a commit's identifier pins down the exact contents of every file in the project and the entire history before it. Two unchanged directories have the same hash, which is how Git compares large trees quickly and stores unchanged files only once.
 
 **Blockchains.** Each block of transactions includes the Merkle root of those transactions in its header. A lightweight wallet that keeps only the headers can confirm that a payment is in a block by asking for a Merkle proof, without downloading the block.
 
