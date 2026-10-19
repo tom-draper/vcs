@@ -14,6 +14,7 @@ import LzDemo from './LzDemo.astro';
 import ChecksumDemo from './ChecksumDemo.astro';
 import HammingDemo from './HammingDemo.astro';
 import CodeCube from './CodeCube.astro';
+import LossLandscape from './LossLandscape.astro';
 import RegressionDemo from './RegressionDemo.astro';
 import DescentDemo from './DescentDemo.astro';
 import OverfitDemo from './OverfitDemo.astro';
@@ -126,6 +127,7 @@ export const components = {
   ChecksumDemo,
   HammingDemo,
   CodeCube,
+  LossLandscape,
   RegressionDemo,
   DescentDemo,
   OverfitDemo,

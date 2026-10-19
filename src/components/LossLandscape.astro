@@ -1,0 +1,220 @@
+---
+// A hilly loss surface in 3D. Drop balls on it and watch gradient descent
+// carry each one downhill, either step by step or with momentum, and see
+// which valley each one ends up in.
+interface Props {
+  /** `hero` replays a scatter of balls on a loop with no controls, for the home page. */
+  variant?: 'figure' | 'hero';
+}
+
+const { variant = 'figure' } = Astro.props;
+---
+
+<loss-landscape class:list={['plate', 'loss-landscape', variant]} data-variant={variant}>
+  <div class="plate-stage">
+    <div
+      class="plate-canvas"
+      role="img"
+      aria-label="A hilly surface whose height is the loss for every pair of parameter values. It has one deepest valley and several shallower ones. Balls dropped on it roll downhill, leaving trails, and come to rest at the bottom of whichever valley they fall into."
+    >
+    </div>
+    <div class="plate-labels" aria-hidden="true"></div>
+    {variant === 'figure' && <p class="plate-hint">Drag to turn. Click the surface to drop a ball.</p>}
+    <p class="plate-fallback" hidden>This figure needs WebGL to draw. The controls and readout still work.</p>
+  </div>
+
+  {
+    variant === 'figure' ? (
+      <div class="plate-panel">
+        <div class="plate-col">
+          <div class="plate-group" role="group" aria-label="Method">
+            <span class="plate-caption">Method</span>
+            <div class="plate-buttons">
+              <button type="button" data-method="plain" aria-pressed="true">Plain gradient descent</button>
+              <button type="button" data-method="momentum" aria-pressed="false">With momentum</button>
+            </div>
+          </div>
+          <div class="plate-group" role="group" aria-label="Learning rate">
+            <span class="plate-caption">Learning rate</span>
+            <div class="plate-buttons">
+              <button type="button" data-rate="small" aria-pressed="false">Small</button>
+              <button type="button" data-rate="medium" aria-pressed="true">Medium</button>
+              <button type="button" data-rate="large" aria-pressed="false">Large</button>
+            </div>
+          </div>
+          <div class="plate-group" role="group" aria-label="Balls">
+            <span class="plate-caption">Balls</span>
+            <div class="plate-buttons">
+              <button type="button" class="primary" data-act="scatter">Drop 16 balls</button>
+              <button type="button" data-act="replay">Same starts again</button>
+              <button type="button" class="undo" data-act="clear">Clear</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="plate-col">
+          <p class="plate-note" data-out="note">
+            Each ball is a training run started from a different place. It takes a step against the gradient, then another, until the ground is flat.
+          </p>
+          <dl class="plate-facts">
+            <div><dt>Balls</dt><dd data-out="count">0</dd></div>
+            <div><dt>Reached the lowest point</dt><dd data-out="best">0</dd></div>
+            <div><dt>Stuck in a dip</dt><dd data-out="stuck">0</dd></div>
+          </dl>
+        </div>
+        <p class="plate-verdict" data-out="verdict" data-tone="neutral" aria-live="polite">
+          Drop some balls, then try the same starts with momentum.
+        </p>
+      </div>
+    ) : (
+      <p class="plate-verdict hero-caption" data-out="verdict" data-tone="neutral">Sixteen training runs, started all over the map.</p>
+    )
+  }
+</loss-landscape>
+
+<script>
+  import { ball, rates, scatter, step, summarise, type Ball, type Method, type Rate } from '../lib/loss-landscape';
+  import type { LossLandscapeScene } from '../lib/loss-landscape-scene';
+
+  const notes: Record<Method, string> = {
+    plain:
+      'Each ball is a training run started from a different place. It takes a step against the gradient, then another, until the ground is flat.',
+    momentum:
+      'With momentum, each step adds to the velocity of the steps before it, so a ball builds speed downhill and can roll over a small rise into a deeper valley.',
+  };
+
+  class LossLandscape extends HTMLElement {
+    private method: Method = 'plain';
+    private rate: Rate = 'medium';
+    private balls: Ball[] = [];
+    /** Where the current balls started, so the same starts can be replayed. */
+    private starts: [number, number][] = [];
+    private seed = 1;
+    private scene?: LossLandscapeScene;
+    private hero = false;
+    private timers: number[] = [];
+
+    connectedCallback() {
+      this.hero = this.dataset.variant === 'hero';
+      const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      this.addEventListener('click', (event) => {
+        const set = (event.target as HTMLElement).closest('button')?.dataset;
+        if (!set) return;
+        if (set.method) {
+          this.method = set.method as Method;
+          this.drop(this.starts);
+        } else if (set.rate) {
+          this.rate = set.rate as Rate;
+          this.drop(this.starts);
+        } else if (set.act === 'scatter') {
+          this.seed += 1;
+          this.drop(scatter(16, this.seed).map((b) => [b.x, b.y]));
+        } else if (set.act === 'replay') this.drop(this.starts);
+        else if (set.act === 'clear') this.drop([]);
+      });
+
+      // Three.js is only fetched once the figure is close to the screen.
+      const near = new IntersectionObserver(
+        async ([entry]) => {
+          if (!entry.isIntersecting) return;
+          near.disconnect();
+          try {
+            const { LossLandscapeScene } = await import('../lib/loss-landscape-scene');
+            this.scene = new LossLandscapeScene(
+              this.querySelector<HTMLElement>('.plate-canvas')!,
+              this.querySelector<HTMLElement>('.plate-labels')!,
+              {
+                reducedMotion,
+                autoRotate: true,
+                interactive: !this.hero,
+                onPick: (x, y) => this.addBall(x, y),
+                onProgress: () => this.render(),
+              },
+            );
+            if (this.hero) this.loop(0);
+            else this.drop(scatter(16, this.seed).map((b) => [b.x, b.y]));
+          } catch {
+            this.querySelector<HTMLElement>('.plate-fallback')!.hidden = false;
+            this.classList.add('no-webgl');
+          }
+        },
+        { rootMargin: '200px' },
+      );
+      near.observe(this);
+      this.render();
+    }
+
+    disconnectedCallback() {
+      this.timers.forEach(clearTimeout);
+      this.scene?.dispose();
+    }
+
+    /** The hero alternates plain descent and momentum on the same starting points. */
+    private loop(round: number) {
+      this.method = round % 2 ? 'momentum' : 'plain';
+      if (round % 2 === 0) this.seed += 1;
+      this.drop(scatter(16, this.seed).map((b) => [b.x, b.y]));
+    }
+
+    private drop(starts: [number, number][]) {
+      this.starts = starts;
+      this.balls = starts.map(([x, y]) => ball(x, y));
+      if (this.scene) this.scene.set(this.balls, this.method, rates[this.rate]);
+      // Without WebGL there is nothing to watch, so run every ball to the end now.
+      else for (const b of this.balls) while (step(b, this.method, rates[this.rate]));
+      this.render();
+    }
+
+    private addBall(x: number, y: number) {
+      const b = ball(x, y);
+      this.starts = [...this.starts, [x, y]];
+      this.balls.push(b);
+      this.scene?.add(b);
+      this.render();
+    }
+
+    private render() {
+      const out = (name: string) => this.querySelector<HTMLElement>(`[data-out="${name}"]`);
+      this.querySelectorAll<HTMLElement>('[data-method]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.method === this.method)));
+      this.querySelectorAll<HTMLElement>('[data-rate]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.rate === this.rate)));
+      const note = out('note');
+      if (note) note.textContent = notes[this.method];
+
+      const done = this.balls.filter((b) => b.done);
+      const best = done.filter((b) => b.basin === 0).length;
+      const stuck = done.filter((b) => b.basin !== null && b.basin > 0).length;
+      const set = (name: string, value: string) => {
+        const el = out(name);
+        if (el) el.textContent = value;
+      };
+      set('count', String(this.balls.length));
+      set('best', String(best));
+      set('stuck', String(stuck));
+
+      const verdict = out('verdict')!;
+      const moving = this.balls.some((b) => !b.done);
+      if (!this.balls.length) {
+        verdict.textContent = 'Click the surface to drop a ball, or drop sixteen at once.';
+        verdict.dataset.tone = 'neutral';
+      } else if (moving) {
+        verdict.textContent = this.method === 'momentum' ? 'Rolling downhill with momentum…' : 'Stepping downhill…';
+        verdict.dataset.tone = 'neutral';
+      } else {
+        verdict.textContent = summarise(this.balls, this.method);
+        verdict.dataset.tone = best === done.length ? 'good' : best >= done.length / 2 ? 'warn' : 'bad';
+        if (this.hero && !this.timers.length) {
+          const round = this.method === 'momentum' ? 1 : 0;
+          this.timers.push(
+            window.setTimeout(() => {
+              this.timers = [];
+              this.loop(round + 1);
+            }, 3200),
+          );
+        }
+      }
+    }
+  }
+
+  customElements.define('loss-landscape', LossLandscape);
+</script>

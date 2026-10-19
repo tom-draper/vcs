@@ -4151,6 +4151,29 @@ main {
   }
 }
 
+/* The loss landscape figure. */
+
+.ll-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 0.05rem 0.45rem;
+  border-radius: 1rem;
+  background: var(--plate);
+  box-shadow: inset 0 0 0 1px var(--plate-line);
+  color: var(--plate-ink-2);
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+  will-change: transform;
+  transition: opacity 0.3s;
+}
+
+.ll-label.best {
+  box-shadow: inset 0 0 0 1.5px var(--plate-good);
+  color: var(--plate-ink);
+}
+
 .hero-figure {
   margin: 0;
 }
