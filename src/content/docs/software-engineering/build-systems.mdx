@@ -1,0 +1,127 @@
+---
+description: A build system turns source files into programs by running compilers and other tools in the right order. It models the work as a graph of dependencies, rebuilds only what a change affects, runs independent steps in parallel, and in its most careful forms can reuse results built by someone else.
+difficulty: intermediate
+---
+
+A program of any size is built from many source files. Each has to be [compiled](/languages/compilers-and-interpreters/), and the results linked together, and some files are generated from others along the way. On a large project a full build can take an hour. Nobody wants to wait an hour to try a one-line change.
+
+A **build system** runs those steps for you. Its real job is not building everything, which a shell script can do, but working out how little it can get away with rebuilding after each change, and doing that little as fast as possible.
+
+## The dependency graph
+
+Every output is built from inputs. `parse.o` is compiled from `parse.c` and the headers it includes. The program `app` is linked from three object files. Write those relationships down and you have a [directed acyclic graph](/foundations/graph-theory/): files are nodes, and an edge from A to B means B is built from A.
+
+```make
+app: main.o parse.o util.o
+	cc -o app main.o parse.o util.o
+
+parse.o: parse.c parse.h util.h
+	cc -c parse.c
+```
+
+This is a **Makefile**, the format of `make`, written in 1976 and still everywhere. Each rule names a target, the files it depends on, and the command that builds it.
+
+A build is a walk of that graph in [topological order](/algorithms/topological-sort/): nothing is built until everything it depends on is ready. A cycle, where A needs B and B needs A, makes a build impossible, and build systems reject it.
+
+## What needs rebuilding?
+
+After an edit, only the targets **downstream** of the changed file can be out of date. Edit `util.h`, and every object file that includes it must be recompiled, then everything linked from those. Edit `main.c`, and only `main.o` and `app` are affected.
+
+`make` decides with **timestamps**. A target is stale if any of its inputs has a newer modification time than it does. That is cheap, needing only a `stat` call per file, and usually right.
+
+<BuildDemo />
+
+Press Build for a full build, then click a source file to edit it and build again. Only the targets downstream of the edit are rebuilt, shown in blue. Edit `parse.h` to see a header change fan out to every file that includes it.
+
+## Where timestamps go wrong
+
+Now choose "a comment", edit `util.c`, and build with timestamps. Compiling `util.c` produces exactly the same `util.o` as before, since comments do not reach the object file. But `util.o` has been written again, so it is now newer than `app` and `tests`, and they are relinked too. A formatting change to a widely included header can trigger a rebuild of half the project for nothing.
+
+Timestamps have other failures. Switching Git branches, restoring from a backup, or a clock that differs between machines can leave a file looking older than it is, and a changed file is silently not rebuilt. That is worse than slow, because the program you run is not built from the code you are looking at.
+
+## Content hashes and early cutoff
+
+The fix is to decide by **contents**, not times. Record a hash of every input when a target is built. Later, the target is stale only if some input's hash is different.
+
+This also allows **early cutoff**. After rebuilding `util.o`, compare the hash of the new output with the old. If it is identical, nothing downstream needs to run, whatever its timestamps say. Switch the widget to "content hashes" and edit a comment again: `util.o` is recompiled, comes out the same (shown dashed), and the build stops there.
+
+Hashing costs a read of every file, but modern tools cache hashes and only rehash files whose metadata changed. Bazel, Buck, Pants, Nix and Shake all decide by content.
+
+## Running steps in parallel
+
+Steps that do not depend on each other can run at the same time. The four object files here have no edges between them, so with enough workers they all compile together. The link steps must wait for their inputs.
+
+The timeline under the graph shows the jobs on each worker. Do a clean build with 1, 2 and 4 workers. The **work** is the total time of every job. The time taken can never be less than the **critical path**, the longest chain of jobs that must run one after another: here, compiling `parse.o` and then linking. Beyond that, more workers stop helping, however many there are. `make -j8` runs up to eight jobs at once; most modern tools use every core by default.
+
+## Hermetic builds and caching
+
+A build step is a function: the same inputs should always give the same output. If that is really true, the result can be **cached**: look up the hash of all a step's inputs and its command, and if anyone has run that exact step before, reuse their output instead of running it.
+
+For that to be safe, each step must be **hermetic**: it may read only the inputs it declared. A compiler that also reads an undeclared header, an environment variable, the current time or a file from the internet produces outputs that the hash does not describe. Bazel enforces this by running each step in a **sandbox** that contains only the declared inputs, so an undeclared dependency is an error rather than a silent bug.
+
+With hermetic steps, a **remote cache** shared by a whole company means that a file compiled once, by anyone, on any machine, never needs compiling again. A developer who pulls the latest code downloads most of the results rather than building them. **Remote execution** goes further and runs the steps that do miss the cache on a farm of machines.
+
+The same property gives **reproducible builds**: the same source produces bit-for-bit the same binary, so anyone can check that a published program really came from the published code. Debian and other projects work towards this for their whole distributions.
+
+## Dependencies on other people's code
+
+Most programs also depend on libraries from outside the project. A **package manager** (npm, pip, Cargo, Maven) fetches them, and solves which versions of everything are compatible with each other. A **lockfile** records the exact versions and hashes chosen, so every build on every machine uses the same code until someone deliberately updates it. Without one, two builds of the same commit, a week apart, can produce different programs.
+
+## Implementation
+
+A tiny build system that decides by content and stops early:
+
+```python
+import hashlib, json, os, subprocess
+
+def digest(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+def build(target, rules, db, done=None):
+    done = {} if done is None else done
+    if target in done:
+        return done[target]
+    if target not in rules:                       # a source file
+        done[target] = digest(target)
+        return done[target]
+    inputs, command = rules[target]
+    key = [build(i, rules, db, done) for i in inputs] + [command]
+    if db.get(target, {}).get("key") != key or not os.path.exists(target):
+        subprocess.run(command, shell=True, check=True)
+        db[target] = {"key": key}
+    done[target] = digest(target)                 # unchanged output: dependents see the same hash
+    return done[target]
+
+rules = {
+    "util.o": (["util.c", "util.h"], "cc -c util.c"),
+    "app": (["main.o", "parse.o", "util.o"], "cc -o app main.o parse.o util.o"),
+}
+```
+
+## Costs
+
+<Ops items={[
+  ['Check one target', 'O(inputs)', 'a stat or a cached hash each'],
+  ['No-op build', 'O(files)', 'should take well under a second'],
+  ['Incremental build', 'O(targets downstream of the change)', ''],
+  ['Parallel build time', 'at least the critical path', 'and at least work ÷ workers'],
+  ['Cache hit', 'one download', 'instead of running the step'],
+]} />
+
+## Where it is used
+
+**Every compiled language.** Make, CMake and Ninja for C and C++, Cargo for Rust, Gradle and Maven for Java, and the Go tool each implement this graph for their language.
+
+**Large companies.** Google's Blaze, released as Bazel, and Meta's Buck2 build monorepos with millions of files, relying on hermetic steps, remote caching and remote execution so that most builds reuse work already done.
+
+**Beyond code.** Static site generators, data pipelines, LaTeX documents and machine learning workflows all have outputs built from inputs, and tools such as `make`, DVC and Airflow manage them with the same graph.
+
+## Key takeaways
+
+- A build system models files and steps as a dependency graph and runs it in topological order.
+- After a change, only targets downstream of it need rebuilding.
+- `make` decides by timestamps, which is cheap but rebuilds too much after harmless changes and can miss real ones.
+- Deciding by content hashes is reliable, and allows early cutoff when a rebuilt output comes out identical.
+- Independent steps run in parallel, but no number of workers beats the critical path.
+- Hermetic steps can be cached and shared, so a step only ever runs once for a given set of inputs.
