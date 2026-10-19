@@ -422,6 +422,26 @@ const outline: PartDef[] = [
       },
     ],
   },
+  {
+    title: 'Machine Learning',
+    slug: 'machine-learning',
+    summary: 'Programs that learn their behaviour from examples instead of being told it.',
+    chapters: [
+      {
+        title: 'Learning from Data',
+        pages: [
+          'Linear Regression',
+          'Gradient Descent',
+          'Overfitting and Regularisation',
+          'k-Means Clustering',
+        ],
+      },
+      {
+        title: 'Neural Networks',
+        pages: ['Neural Networks', 'Backpropagation'],
+      },
+    ],
+  },
 ];
 
 export interface Page {
