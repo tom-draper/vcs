@@ -213,6 +213,14 @@ The information and coding pages use `<EntropyDemo />`, `<HuffmanDemo />`, `<LzD
 `<ChecksumDemo />` and `<HammingDemo />`, backed by `src/lib/information.ts`. The first
 four take a `text` prop for their starting input.
 
+The machine learning pages use `<RegressionDemo />` (steer a line, errors drawn as
+squares), `<DescentDemo />` (gradient descent on the error surface, with a choice of
+learning rates), `<OverfitDemo />` (polynomial degree and ridge penalty against
+training and test error), `<KMeansDemo />`, `<NetworkDemo />` (a tiny network trained
+live on `line`, `xor` and `circle` data) and `<BackpropDemo />` (one neuron's forward
+and backward pass, node by node). They are backed by `src/lib/learning.ts`, which also
+draws each widget's SVG so the first frame renders without JavaScript.
+
 3D figures are drawn with three.js. Each has a model in `src/lib/<name>.ts` and a scene
 in `src/lib/<name>-scene.ts` that extends `PlateScene` from `src/lib/plate-scene.ts`,
 which handles the renderer, bloom, orbit controls, HTML labels and pausing off screen.
