@@ -5,9 +5,10 @@
 import { attention, attentionSize, attentionSvg } from '../lib/learning';
 
 const options = { ending: 'tired' as const, causal: false, scaled: true };
-const { words, weights } = attention(options);
+const { words, weights, scores } = attention(options);
 const selected = words.indexOf('it');
 const size = attentionSize(words.length);
+const order = words.map((_, j) => j).sort((a, b) => weights[selected][b] - weights[selected][a]);
 ---
 
 <attention-demo class="playground attention-demo">
@@ -17,7 +18,18 @@ const size = attentionSize(words.length);
     </div>
     <div class="at-detail">
       <p class="at-title">Where <b data-out="word">it</b> looks</p>
-      <ol class="at-bars" data-out="bars"></ol>
+      <ol class="at-bars" data-out="bars">
+        {
+          order.map((j) => (
+            <li>
+              <span class="at-name">{words[j]}</span>
+              <span class="at-bar"><i style={`width:${(weights[selected][j] * 100).toFixed(1)}%`}></i></span>
+              <span class="at-num">{Math.round(weights[selected][j] * 100)}%</span>
+              <span class="at-score">score {scores[selected][j].toFixed(2)}</span>
+            </li>
+          ))
+        }
+      </ol>
     </div>
   </div>
   <p class="tries">
