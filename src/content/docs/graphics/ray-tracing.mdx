@@ -1,0 +1,146 @@
+---
+description: Ray tracing works backwards from the eye, firing a ray through each pixel to find what it hits, then more rays from there to the lights and in the mirror direction. Shadows, reflections and refraction fall out of the same question, at a cost of many intersection tests per pixel.
+difficulty: intermediate
+---
+
+[Rasterisation](/graphics/rasterisation/) starts from the triangles and asks which pixels each one covers. It is fast, but it only ever looks at one triangle at a time. A triangle cannot tell whether something stands between it and the light, or what it would reflect, because those depend on the rest of the scene. Rasterisers fake shadows and reflections with extra passes and tricks.
+
+**Ray tracing** turns the question round. It starts from each pixel and asks: what does the eye see in this direction? Answering that means following a line through the scene, and following more lines from wherever it lands. Shadows, mirrors and glass then come from the same simple operation.
+
+## Following light backwards
+
+In the real world, light leaves a lamp, bounces around, and a tiny fraction of it enters the eye. Simulating that forwards would waste almost all the work on light that never reaches the camera.
+
+The trick is that light paths are reversible. Start at the eye and trace backwards: send a ray through the centre of each pixel, out into the scene. Whatever it hits first is what that pixel shows.
+
+```
+for each pixel:
+    ray = line from the eye through the pixel
+    colour[pixel] = trace(ray)
+```
+
+A **ray** is a starting point and a direction, and the points along it are `origin + t · direction` for every t ≥ 0.
+
+## Finding the first hit
+
+`trace` needs to know which object the ray meets first. For each object, solve for the t where the ray meets it, and keep the smallest positive one.
+
+For a **sphere** with centre c and radius r, a point is on the surface when its distance from c is r. Substitute the ray:
+
+```
+|origin + t · d − c|² = r²
+```
+
+Expanding gives a quadratic in t. If its discriminant is negative, the ray misses. Otherwise the smaller positive root is the near side of the sphere.
+
+For a **plane** such as a floor at y = 0, solve `origin.y + t · d.y = 0` directly. For a **triangle**, intersect its plane and then check that the point is inside, with the same barycentric weights a rasteriser uses.
+
+## Lighting the hit
+
+Once the ray has hit something, colour it with the [shading model](/graphics/shading/): the surface normal at the hit, the direction to the light and the direction back along the ray. That alone gives the same picture a rasteriser would.
+
+<RayTraceDemo />
+
+The widget starts with no lighting at all: each pixel takes the flat colour of whatever its ray hits first. Turn on "Light", then "Shadows", then "Reflections", and watch the readouts count the extra rays each one costs. Click any pixel to see the rays traced for it, drawn on a map of the scene from above.
+
+## Shadows
+
+To know whether a point is lit, ask the scene: is there anything between here and the light? Fire a **shadow ray** from the hit point towards the light. If it hits something before reaching the light, the point is in shadow and gets only ambient light.
+
+That is the whole algorithm. It is exact, it works for any shape that can be intersected, and a ball's shadow lands on the floor, on another ball, or on itself without any special case. Click a pixel in the shadow under a ball and the dotted shadow ray stops short of the light.
+
+<Aside type="warning" title="Shadow acne">
+
+A shadow ray starts exactly on a surface. Rounding errors can put its start a hair inside, so it immediately hits the surface it started from, and that point wrongly shadows itself. The result is a speckle of dark dots called **shadow acne**. The fix is to nudge the start of every secondary ray a tiny distance along the normal.
+
+</Aside>
+
+## Reflections
+
+A mirror shows whatever is in the mirror direction. So at a shiny surface, compute the reflected direction `d − 2(d · n)n` and call `trace` again from the hit point. Its result is mixed into the surface's own colour in proportion to how reflective the surface is.
+
+`trace` is now recursive, and the recursion has to stop: two mirrors facing each other would reflect forever. A maximum depth, usually a handful of bounces, cuts it off. The mirror ball in the widget reflects the red ball, which reflects the floor.
+
+Glass works the same way with a **refraction ray**, bent by Snell's law as it passes into the material, usually traced alongside a reflection ray. This recursive scheme, one ray per pixel, with shadow, reflection and refraction rays spawned at each hit, is **Whitted ray tracing**, from 1980.
+
+## Aliasing and noise
+
+One ray per pixel samples each pixel at a single point, and gives the same jagged edges as rasterisation. Switch the widget to 30 × 19 to see them. The fix is the same idea as multisampling: fire several rays per pixel, at slightly different points, and average them.
+
+Whitted's method gives perfectly sharp shadows and mirrors, because a point light and a perfect mirror each send one ray. Real lights have size, and real surfaces are slightly rough. **Distributed ray tracing** fires many rays per pixel and scatters them: towards random points on the light for soft shadows, in a cone around the mirror direction for blurry reflections, through different points of a lens for depth of field.
+
+## Path tracing
+
+The most complete version is **path tracing**. At every hit, instead of following only the mirror direction, pick a random direction according to how the surface scatters light, and keep going. Average thousands of such random paths per pixel. Light bouncing off a red wall then tints a white floor pink, and light focused through a glass makes a bright patch on the table, without any special code for either. This is **global illumination**.
+
+The catch is noise. With too few paths per pixel, the image is speckled. Film renderers use thousands of paths per pixel and hours per frame. Real-time path tracing uses a few paths per pixel and a **denoiser**, often a neural network, to guess the clean image.
+
+## Making it fast
+
+The cost of ray tracing is intersection tests. A naive tracer tests every ray against every triangle: millions of rays against millions of triangles.
+
+The fix is a **bounding volume hierarchy** (BVH), a tree of boxes. Each box encloses a group of triangles, and boxes nest inside larger boxes. A ray that misses a box skips everything inside it. With a good tree, finding the first hit takes about O(log n) box tests instead of n triangle tests, just as a [binary search tree](/data-structures/binary-search-trees/) turns a scan into a descent.
+
+GPUs since 2018 have **RT cores** that walk a BVH and test ray-triangle intersections in hardware.
+
+## Implementation
+
+```python
+import math
+
+def trace(origin, d, scene, depth=0):
+    hit = nearest_hit(origin, d, scene)
+    if hit is None:
+        return SKY
+    point, normal, material = hit
+    to_light = normalise(sub(LIGHT, point))
+    start = add(point, scale(normal, 1e-4))        # avoid shadow acne
+
+    lit = max(0.0, dot(normal, to_light))
+    blocker = nearest_hit(start, to_light, scene)
+    if blocker and distance(start, blocker[0]) < distance(start, LIGHT):
+        lit = 0.0                                  # something is in the way
+
+    colour = scale(material.colour, 0.1 + 0.9 * lit)
+    if material.mirror > 0 and depth < 4:
+        bounced = trace(start, reflect(d, normal), scene, depth + 1)
+        colour = mix(colour, bounced, material.mirror)
+    return colour
+
+def hit_sphere(origin, d, centre, radius):
+    oc = sub(origin, centre)
+    b = dot(oc, d)                                 # d is a unit vector
+    disc = b * b - (dot(oc, oc) - radius * radius)
+    if disc < 0:
+        return None                                # the ray misses
+    t = -b - math.sqrt(disc)
+    return t if t > 0 else None
+```
+
+## Costs
+
+<Ops items={[
+  ['Primary rays', 'one per pixel', 'or several, for anti-aliasing'],
+  ['Shadow rays', 'one per hit per light', ''],
+  ['First hit, no structure', 'O(n)', 'n objects tested'],
+  ['First hit, with a BVH', 'about O(log n)', 'building the tree is O(n log n)'],
+  ['Path tracing', 'paths × bounces per pixel', 'noise falls as 1/√paths'],
+]} />
+
+## Where it is used
+
+**Film.** Animated and visual effects films are path traced, by renderers such as Pixar's RenderMan, Arnold and Cycles.
+
+**Games.** Since hardware ray tracing arrived, games rasterise what each pixel sees directly, then trace rays for reflections, shadows and global illumination, and denoise the result.
+
+**Design and architecture.** Product and building visualisation use path tracing because it predicts how a real material will look under real light.
+
+**Beyond pictures.** The same intersection machinery simulates sound in rooms, radio coverage around buildings, and lidar sensors for self-driving cars.
+
+## Key takeaways
+
+- Ray tracing fires a ray from the eye through each pixel and finds the first object it hits.
+- Finding hits means solving for where a line meets each shape, such as a quadratic for a sphere.
+- A shadow ray towards the light decides shadow exactly. A reflection ray, traced recursively, gives mirrors.
+- Several rays per pixel fix jagged edges. Random rays give soft shadows, blur and, in path tracing, global illumination.
+- The cost is intersection tests. A bounding volume hierarchy cuts each ray's work from linear to roughly logarithmic.
