@@ -814,3 +814,134 @@ export function backpropSvg(n: Neuron, index: number): string {
   });
   return edges.join('') + nodes.join('');
 }
+
+/* ---------- Decision trees ---------- */
+
+/**
+ * Points in two classes, from a rule a tree can learn with a few questions:
+ * class 1 in the upper right, and in a smaller patch in the upper left. About
+ * one label in eight is flipped, as noise.
+ */
+function treeSample(count: number, seed: number): Labelled[] {
+  const random = seeded(seed);
+  return Array.from({ length: count }, () => {
+    const x = random() * 10;
+    const y = random() * 10;
+    const truth = (x > 5.5 && y > 3.5) || (x < 3 && y > 7);
+    const noisy = random() < 0.12 ? !truth : truth;
+    return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, label: (noisy ? 1 : 0) as 0 | 1 };
+  });
+}
+
+export const treeTrain = treeSample(90, 12);
+export const treeTest = treeSample(300, 77);
+export const treePlot = new Plot(600, 340, 0, 10, 0, 10);
+
+export type Impurity = 'entropy' | 'gini';
+
+export function impurity(ones: number, total: number, kind: Impurity): number {
+  if (!total) return 0;
+  const p = ones / total;
+  if (kind === 'gini') return 2 * p * (1 - p);
+  const h = (q: number) => (q > 0 ? -q * Math.log2(q) : 0);
+  return h(p) + h(1 - p);
+}
+
+export interface TreeNode {
+  /** Majority label, and how many of each label reached the node. */
+  label: 0 | 1;
+  counts: [number, number];
+  impurity: number;
+  /** Set on a split node: points with feature < threshold go left. */
+  feature?: 'x' | 'y';
+  threshold?: number;
+  gain?: number;
+  left?: TreeNode;
+  right?: TreeNode;
+  /** The region of the plane this node covers. */
+  box: { x0: number; x1: number; y0: number; y1: number };
+}
+
+/** Grows a tree greedily: at each node, the split that lowers impurity the most. */
+export function growTree(points: Labelled[], maxDepth: number, kind: Impurity, box = { x0: 0, x1: 10, y0: 0, y1: 10 }, depth = 0): TreeNode {
+  const ones = points.filter((p) => p.label === 1).length;
+  const node: TreeNode = {
+    label: ones * 2 > points.length ? 1 : 0,
+    counts: [points.length - ones, ones],
+    impurity: impurity(ones, points.length, kind),
+    box,
+  };
+  if (depth >= maxDepth || node.impurity === 0 || points.length < 2) return node;
+
+  let best: { feature: 'x' | 'y'; threshold: number; gain: number } | null = null;
+  for (const feature of ['x', 'y'] as const) {
+    const sorted = [...points].sort((a, b) => a[feature] - b[feature]);
+    let leftOnes = 0;
+    for (let i = 1; i < sorted.length; i++) {
+      leftOnes += sorted[i - 1].label;
+      if (sorted[i][feature] === sorted[i - 1][feature]) continue;
+      const n = sorted.length;
+      const after = (i / n) * impurity(leftOnes, i, kind) + ((n - i) / n) * impurity(ones - leftOnes, n - i, kind);
+      const gain = node.impurity - after;
+      if (gain > 1e-9 && (!best || gain > best.gain)) best = { feature, threshold: (sorted[i][feature] + sorted[i - 1][feature]) / 2, gain };
+    }
+  }
+  if (!best) return node;
+  const { feature, threshold } = best;
+  node.feature = feature;
+  node.threshold = Math.round(threshold * 100) / 100;
+  node.gain = best.gain;
+  const leftBox = feature === 'x' ? { ...box, x1: threshold } : { ...box, y1: threshold };
+  const rightBox = feature === 'x' ? { ...box, x0: threshold } : { ...box, y0: threshold };
+  node.left = growTree(points.filter((p) => p[feature] < threshold), maxDepth, kind, leftBox, depth + 1);
+  node.right = growTree(points.filter((p) => p[feature] >= threshold), maxDepth, kind, rightBox, depth + 1);
+  return node;
+}
+
+export function predict(node: TreeNode, p: Point): 0 | 1 {
+  while (node.feature) node = p[node.feature] < node.threshold! ? node.left! : node.right!;
+  return node.label;
+}
+
+export function leaves(node: TreeNode): TreeNode[] {
+  return node.feature ? [...leaves(node.left!), ...leaves(node.right!)] : [node];
+}
+
+export const accuracy = (node: TreeNode, points: Labelled[]) => points.filter((p) => predict(node, p) === p.label).length / Math.max(points.length, 1);
+
+export function treeSvg(root: TreeNode, showTest: boolean, plot = treePlot): string {
+  const regions = leaves(root).map((leaf) => {
+    const { x0, x1, y0, y1 } = leaf.box;
+    return `<rect class="ml-cell dt-region" data-class="${leaf.label}" x="${plot.px(x0).toFixed(1)}" y="${plot.py(y1).toFixed(1)}" width="${(plot.px(x1) - plot.px(x0)).toFixed(1)}" height="${(plot.py(y0) - plot.py(y1)).toFixed(1)}"/>`;
+  });
+  const cuts: string[] = [];
+  const walk = (node: TreeNode, depth: number) => {
+    if (!node.feature) return;
+    const { x0, x1, y0, y1 } = node.box;
+    const t = node.threshold!;
+    const [ax, ay, bx, by] = node.feature === 'x' ? [t, y0, t, y1] : [x0, t, x1, t];
+    cuts.push(`<line class="dt-cut" data-depth="${Math.min(depth, 3)}" x1="${plot.px(ax).toFixed(1)}" y1="${plot.py(ay).toFixed(1)}" x2="${plot.px(bx).toFixed(1)}" y2="${plot.py(by).toFixed(1)}"/>`);
+    walk(node.left!, depth + 1);
+    walk(node.right!, depth + 1);
+  };
+  walk(root, 0);
+  const dots = (showTest ? treeTest : treeTrain).map(
+    (p) => `<circle class="ml-sample${showTest ? ' dt-test' : ''}" data-class="${p.label}" cx="${plot.px(p.x).toFixed(1)}" cy="${plot.py(p.y).toFixed(1)}" r="${showTest ? 3 : 4.5}"/>`,
+  );
+  return plot.axes([0, 2, 4, 6, 8, 10], [0, 2, 4, 6, 8, 10], 'x', 'y') + plot.clip(regions.join('') + cuts.join('') + dots.join(''));
+}
+
+/** The tree as nested questions, for reading beside the plot. */
+export function treeOutline(node: TreeNode, kind: Impurity): string {
+  const name = kind === 'entropy' ? 'entropy' : 'Gini';
+  const leaf = (n: TreeNode) =>
+    `<span class="dt-leaf" data-class="${n.label}">class ${n.label === 1 ? 'blue' : 'orange'}</span> <small>${n.counts[1]} blue, ${n.counts[0]} orange</small>`;
+  const render = (n: TreeNode): string => {
+    if (!n.feature) return `<li>${leaf(n)}</li>`;
+    return (
+      `<li><span class="dt-q">${n.feature} &lt; ${n.threshold}?</span> <small>${name} ${fmt(n.impurity)}, gain ${fmt(n.gain!)}</small>` +
+      `<ul><li class="dt-branch">yes<ul>${render(n.left!)}</ul></li><li class="dt-branch">no<ul>${render(n.right!)}</ul></li></ul></li>`
+    );
+  };
+  return `<ul class="dt-tree">${render(node)}</ul>`;
+}
