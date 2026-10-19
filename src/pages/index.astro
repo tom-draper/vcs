@@ -3,6 +3,7 @@ import { getCollection } from 'astro:content';
 import Base from '../layouts/Base.astro';
 import CacheHierarchy from '../components/CacheHierarchy.astro';
 import CodeCube from '../components/CodeCube.astro';
+import CoordinateSpaces from '../components/CoordinateSpaces.astro';
 import DiskDrive from '../components/DiskDrive.astro';
 import LossLandscape from '../components/LossLandscape.astro';
 import { allPages, parts } from '../outline';
@@ -45,6 +46,14 @@ const heroes = [
     Figure: DiskDrive,
     caption:
       'A hard disk, slowed 120 times. Every read waits for the arm to reach its track, then for the sector to spin round to the head.',
+  },
+  {
+    id: 'coordinate-spaces',
+    page: 'graphics/transforms',
+    link: 'Explore the coordinate spaces',
+    Figure: CoordinateSpaces,
+    caption:
+      'Three houses and a camera, carried from model space to the screen one matrix at a time. Perspective squeezes the camera\'s view into a cube, and the far house shrinks.',
   },
 ].filter((hero) => written.has(hero.page));
 ---
