@@ -1,0 +1,121 @@
+---
+description: k-means splits a set of points into k groups by alternating two simple steps, assigning each point to its nearest centre and moving each centre to the middle of its points. It learns structure from data that comes with no answers at all.
+difficulty: beginner
+---
+
+So far every example came with an answer: hours of practice and the score that followed. This is **supervised learning**, where a model learns to predict a label from examples that have one.
+
+Often there are no labels. A shop has the purchase histories of a million customers and wants to know what kinds of customer it has. Nobody has marked anyone as "bargain hunter" or "weekly regular". The groups, if they exist, have to be found in the data itself. This is **unsupervised learning**, and its most famous algorithm is **k-means clustering**.
+
+## The goal
+
+Given points and a number k, find k centres so that each point is close to its nearest centre. "Close" is measured as the total squared distance from every point to its centre, which is the same quantity [least squares](/machine-learning/linear-regression/) minimises, measured in a different direction.
+
+```
+cost = sum over every point of (distance to its nearest centre)²
+```
+
+Finding the very best centres is [NP-hard](/theory/np-completeness/). k-means does not try. It finds good centres with a pair of steps that each obviously help.
+
+## The algorithm
+
+Start with k centres anywhere, such as on k points chosen at random. Then repeat:
+
+1. **Assign.** Each point joins the cluster of its nearest centre.
+2. **Update.** Each centre moves to the mean of the points in its cluster.
+
+Stop when an assignment step changes nothing.
+
+<KMeansDemo />
+
+Step through it. On the first assignment the clusters are ragged, because the centres were placed blindly. Then each centre jumps to the middle of its points, the next assignment tidies the boundaries, and within a few rounds nothing moves.
+
+## Why it always stops
+
+Each step can only lower the cost or leave it the same.
+
+- Assigning a point to its nearest centre can only shorten its distance.
+- For a fixed group of points, the single location that minimises the total squared distance to them is their mean. So moving a centre to the mean can only help.
+
+The cost cannot fall forever, and there are only finitely many ways to divide the points into k groups, so the algorithm must reach a round where nothing changes. In practice that takes a handful of rounds, not the astronomical number the bound allows.
+
+## Why it can stop in the wrong place
+
+Converging is not the same as finding the best answer. Press "New random start" a few times. Some starts put two centres in one blob and leave another blob to share a centre with its neighbour. Each step still helps, but neither step can fix that: the stray centre would have to cross empty space, which makes things worse before they get better. The algorithm is stuck in a **local minimum**, and the total squared distance in the readout is about three times what it should be.
+
+Two remedies are standard.
+
+**Restarts.** Run k-means several times from different random starts and keep the result with the lowest cost.
+
+**k-means++.** Choose the starting centres carefully. Pick the first at random, then pick each next one with probability proportional to its squared distance from the nearest centre already chosen. Far-flung points are likely to be picked, so the centres start spread across the data. It comes with a guarantee that the result is, on average, within a factor proportional to log k of the best possible, and it is the default in most libraries.
+
+## Choosing k
+
+k-means needs to be told how many clusters to find, and the data does not say. Try k = 2, 3 and 5 in the widget: each gives a tidy-looking answer.
+
+The cost always falls as k grows, reaching zero when every point is its own cluster, so you cannot just pick the k with the lowest cost. Common approaches:
+
+- **The elbow.** Plot the cost against k and look for the point where adding another cluster stops helping much.
+- **Silhouette scores.** For each point, compare how close it is to its own cluster with how close it is to the next nearest. A good k makes most points much closer to their own.
+- **The use.** Often the right k is set by what happens next. A shop with marketing budgets for four campaigns wants four clusters.
+
+## What k-means assumes
+
+k-means draws straight boundaries halfway between centres, so each cluster is a convex region around its centre. It works best when clusters are round blobs of similar size.
+
+It struggles with clusters shaped like rings or crescents, with clusters of very different sizes, and with features measured on different scales. If one feature is income in pounds and another is age in years, income dominates every distance. Scale each feature to a similar range first.
+
+For other shapes there are other algorithms. **DBSCAN** grows clusters through dense regions and handles arbitrary shapes and outliers. **Gaussian mixture models** are a soft version of k-means, where each point belongs partly to every cluster.
+
+## Costs
+
+<Ops items={[
+  ['One round', 'O(nkd)', 'n points, k centres, d dimensions'],
+  ['Rounds to converge', 'usually few', 'can be exponential in the worst case'],
+  ['k-means++ seeding', 'O(nkd)', 'about one extra round'],
+  ['Memory', 'O(n + kd)', 'one label per point, plus the centres'],
+]} />
+
+## Implementation
+
+```python
+import random
+
+def kmeans(points, k, rounds=100):
+    centres = random.sample(points, k)
+    for _ in range(rounds):
+        clusters = [[] for _ in centres]
+        for p in points:
+            nearest = min(range(k), key=lambda c: dist2(p, centres[c]))
+            clusters[nearest].append(p)
+        moved = [mean(c) if c else centres[i] for i, c in enumerate(clusters)]
+        if moved == centres:
+            break
+        centres = moved
+    return centres, clusters
+
+def dist2(a, b):
+    return sum((x - y) ** 2 for x, y in zip(a, b))
+
+def mean(cluster):
+    return tuple(sum(xs) / len(cluster) for xs in zip(*cluster))
+```
+
+## Where it is used
+
+**Customer segmentation.** Grouping customers by behaviour to tailor offers, the classic business use.
+
+**Image compression.** Cluster the colours of an image's pixels into k = 16 or 256 groups and replace each pixel with its cluster's centre. The image needs only a small palette and an index per pixel. Palette images such as GIFs are often made this way.
+
+**Vector search.** To find the nearest of a billion stored vectors quickly, databases cluster them first and only search the few clusters nearest to the query. This is how retrieval for language models scales.
+
+**Vector quantisation.** Speech and audio codecs, and the compressed weights of some neural networks, store each vector as the index of its nearest centre from a learned codebook.
+
+## Key takeaways
+
+- Unsupervised learning finds structure in data that has no labels.
+- k-means alternates assigning each point to its nearest centre and moving each centre to the mean of its points.
+- Both steps lower the total squared distance, so it always converges, usually in a few rounds.
+- It can converge to a poor local minimum. Restarts and k-means++ seeding are the standard fixes.
+- You must choose k. The cost alone cannot tell you, since it always falls as k grows.
+- It suits round clusters of similar size on features of similar scale.
