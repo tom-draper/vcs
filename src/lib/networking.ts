@@ -426,3 +426,171 @@ export function httpExchange(method: string, path: string, conditional: boolean)
   ];
   return { request: request.join('\n').trimEnd(), response: response.join('\n').trimEnd(), why: reply.why };
 }
+
+/* ---------- Routing ---------- */
+
+export const routers: Record<string, [number, number]> = {
+  A: [0, 0],
+  B: [1, 0],
+  C: [2, 0],
+  D: [0, 1],
+  E: [1, 1],
+  F: [2, 1],
+  G: [3, 0.5],
+};
+
+/** Links with their costs. G hangs off C alone, so cutting C–G strands it. */
+export const routerLinks: [string, string, number][] = [
+  ['A', 'B', 1],
+  ['B', 'C', 1],
+  ['A', 'D', 1],
+  ['B', 'E', 2],
+  ['C', 'F', 1],
+  ['D', 'E', 1],
+  ['E', 'F', 3],
+  ['C', 'G', 1],
+];
+
+/** RIP's "infinity": a route this long is treated as no route at all. */
+export const UNREACHABLE = 16;
+
+export const linkKey = (a: string, b: string) => [a, b].sort().join('-');
+
+/**
+ * Distance-vector routing, run in synchronous rounds. In each round every
+ * router hears its neighbours' tables from the round before and keeps, for
+ * each destination, the neighbour that offers the cheapest total.
+ */
+export class DistanceVector {
+  readonly names = Object.keys(routers);
+  /** dist[r][d]: how far r believes d is. */
+  dist: Record<string, Record<string, number>> = {};
+  /** next[r][d]: the neighbour r forwards to for d, or null. */
+  next: Record<string, Record<string, string | null>> = {};
+  cut = new Set<string>();
+  round = 0;
+  splitHorizon = false;
+
+  constructor() {
+    for (const r of this.names) {
+      this.dist[r] = {};
+      this.next[r] = {};
+      for (const d of this.names) {
+        this.dist[r][d] = r === d ? 0 : UNREACHABLE;
+        this.next[r][d] = null;
+      }
+    }
+  }
+
+  neighbours(r: string): [string, number][] {
+    return routerLinks
+      .filter(([a, b]) => (a === r || b === r) && !this.cut.has(linkKey(a, b)))
+      .map(([a, b, cost]) => [a === r ? b : a, cost]);
+  }
+
+  /** One round of everyone sending everyone else their table. Returns whether anything changed. */
+  step(): boolean {
+    const dist: typeof this.dist = {};
+    const next: typeof this.next = {};
+    let changed = false;
+    for (const r of this.names) {
+      dist[r] = {};
+      next[r] = {};
+      for (const d of this.names) {
+        if (r === d) {
+          dist[r][d] = 0;
+          next[r][d] = null;
+          continue;
+        }
+        let best = UNREACHABLE;
+        let via: string | null = null;
+        for (const [n, cost] of this.neighbours(r)) {
+          // With split horizon (poisoned reverse), n tells r "unreachable" for routes that go through r.
+          const offer = this.splitHorizon && this.next[n][d] === r ? UNREACHABLE : this.dist[n][d];
+          const total = Math.min(UNREACHABLE, cost + offer);
+          if (total < best || (total === best && via !== null && n < via && total < UNREACHABLE)) {
+            best = total;
+            via = n;
+          }
+        }
+        dist[r][d] = best;
+        next[r][d] = best < UNREACHABLE ? via : null;
+        if (dist[r][d] !== this.dist[r][d] || next[r][d] !== this.next[r][d]) changed = true;
+      }
+    }
+    this.dist = dist;
+    this.next = next;
+    this.round++;
+    return changed;
+  }
+
+  toggle(a: string, b: string) {
+    const key = linkKey(a, b);
+    if (this.cut.has(key)) this.cut.delete(key);
+    else this.cut.add(key);
+  }
+
+  /** The true shortest distances to d, by Dijkstra's algorithm, for comparison. */
+  truth(d: string): Record<string, number> {
+    const best: Record<string, number> = Object.fromEntries(this.names.map((n) => [n, Infinity]));
+    best[d] = 0;
+    const done = new Set<string>();
+    while (done.size < this.names.length) {
+      const u = this.names.filter((n) => !done.has(n)).sort((a, b) => best[a] - best[b])[0];
+      if (best[u] === Infinity) break;
+      done.add(u);
+      for (const [n, cost] of this.neighbours(u)) best[n] = Math.min(best[n], best[u] + cost);
+    }
+    return best;
+  }
+}
+
+const routerAt = (name: string) => ({ x: 70 + routers[name][0] * 170, y: 60 + routers[name][1] * 170 });
+export const routingView = { width: 650, height: 290 };
+
+export function routingSvg(dv: DistanceVector, destination: string): string {
+  const parts: string[] = [];
+  for (const [a, b, cost] of routerLinks) {
+    const p = routerAt(a);
+    const q = routerAt(b);
+    const cut = dv.cut.has(linkKey(a, b));
+    const mx = (p.x + q.x) / 2;
+    const my = (p.y + q.y) / 2;
+    parts.push(
+      `<g class="ro-link${cut ? ' cut' : ''}" data-link="${a},${b}"><line class="hit" x1="${p.x}" y1="${p.y}" x2="${q.x}" y2="${q.y}"/><line x1="${p.x}" y1="${p.y}" x2="${q.x}" y2="${q.y}"/><rect x="${mx - 11}" y="${my - 10}" width="22" height="20" rx="4"/><text x="${mx}" y="${my}">${cut ? '×' : cost}</text></g>`,
+    );
+  }
+  // Each router's next hop towards the destination, as an arrow along the link.
+  for (const r of dv.names) {
+    const via = dv.next[r][destination];
+    if (!via) continue;
+    const p = routerAt(r);
+    const q = routerAt(via);
+    const len = Math.hypot(q.x - p.x, q.y - p.y);
+    const ux = (q.x - p.x) / len;
+    const uy = (q.y - p.y) / len;
+    const x1 = p.x + ux * 26;
+    const y1 = p.y + uy * 26;
+    const x2 = q.x - ux * 28;
+    const y2 = q.y - uy * 28;
+    const a = Math.atan2(uy, ux);
+    const head = [0.45, -0.45].map((o) => `${(x2 - 9 * Math.cos(a + o)).toFixed(1)},${(y2 - 9 * Math.sin(a + o)).toFixed(1)}`).join(' ');
+    // Offset the arrow to one side of the link so arrows in both directions stay visible.
+    const ox = -uy * 7;
+    const oy = ux * 7;
+    parts.push(
+      `<g class="ro-hop" transform="translate(${ox.toFixed(1)} ${oy.toFixed(1)})"><line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"/><polygon points="${x2.toFixed(1)},${y2.toFixed(1)} ${head}"/></g>`,
+    );
+  }
+  const truth = dv.truth(destination);
+  for (const r of dv.names) {
+    const p = routerAt(r);
+    const d = dv.dist[r][destination];
+    const wrong = r !== destination && d !== Math.min(truth[r], UNREACHABLE);
+    const cls = r === destination ? ' dest' : d >= UNREACHABLE ? ' none' : wrong ? ' wrong' : '';
+    parts.push(
+      `<g class="ro-node${cls}" data-router="${r}"><circle cx="${p.x}" cy="${p.y}" r="20"/><text x="${p.x}" y="${p.y}">${r}</text><text class="ro-dist" x="${p.x}" y="${p.y + (routers[r][1] === 0 ? -33 : 33)}">${r === destination ? 'destination' : d >= UNREACHABLE ? '∞' : d}</text></g>`,
+    );
+  }
+  return parts.join('');
+}

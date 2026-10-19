@@ -52,6 +52,7 @@ import LayersDemo from './LayersDemo.astro';
 import LoadBalancerDemo from './LoadBalancerDemo.astro';
 import SequenceDemo from './SequenceDemo.astro';
 import SubnetDemo from './SubnetDemo.astro';
+import RoutingDemo from './RoutingDemo.astro';
 import ClosureDemo from './ClosureDemo.astro';
 import CompilerDemo from './CompilerDemo.astro';
 import GcDemo from './GcDemo.astro';
@@ -171,6 +172,7 @@ export const components = {
   LoadBalancerDemo,
   SequenceDemo,
   SubnetDemo,
+  RoutingDemo,
   ClosureDemo,
   CompilerDemo,
   GcDemo,

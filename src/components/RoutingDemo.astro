@@ -1,0 +1,117 @@
+---
+// Seven routers learning routes by distance-vector exchange. Each round, every
+// router tells its neighbours how far it thinks every destination is. Arrows
+// show where each router forwards packets for the chosen destination.
+import { DistanceVector, routingSvg, routingView } from '../lib/networking';
+
+const dv = new DistanceVector();
+---
+
+<routing-demo class="playground routing-demo">
+  <div class="viz-scroll">
+    <svg class="viz-svg chart ro-chart" viewBox={`0 0 ${routingView.width} ${routingView.height}`} role="img" aria-label="Seven routers joined by links with costs. Arrows show each router's next hop towards the chosen destination, and the number under each router is its distance." set:html={routingSvg(dv, 'G')} />
+  </div>
+  <p class="tries">
+    <button type="button" data-act="step">Next round</button>
+    <button type="button" data-act="run">Run until stable</button>
+    <button type="button" data-act="split" aria-pressed="false">Split horizon</button>
+    <button type="button" data-act="reset">Reset</button>
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Round</dt><dd data-out="round">0</dd></div>
+    <div><dt>Destination</dt><dd data-out="dest">G</dd></div>
+    <div><dt>Routers with a route</dt><dd data-out="known">0 of 6</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">Every router knows only itself. Step through the rounds and watch routes to G spread outwards. Click a router to make it the destination, and click a link to cut it.</p>
+</routing-demo>
+
+<script>
+  import { DistanceVector, routingSvg, UNREACHABLE } from '../lib/networking';
+
+  class RoutingDemo extends HTMLElement {
+    connectedCallback() {
+      let dv = new DistanceVector();
+      let destination = 'G';
+      let timer = 0;
+      const svg = this.querySelector('svg')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+
+      const render = (status?: string) => {
+        svg.innerHTML = routingSvg(dv, destination);
+        out('round').textContent = String(dv.round);
+        out('dest').textContent = destination;
+        const others = dv.names.filter((r) => r !== destination);
+        out('known').textContent = `${others.filter((r) => dv.dist[r][destination] < UNREACHABLE).length} of ${others.length}`;
+        if (status) out('status').textContent = status;
+      };
+
+      const stop = () => {
+        clearInterval(timer);
+        timer = 0;
+      };
+
+      const describe = (changed: boolean) => {
+        if (!changed) return `Round ${dv.round}: nothing changed, so the network has converged. Every arrow now follows a shortest path.`;
+        const truth = dv.truth(destination);
+        const wrong = dv.names.filter((r) => r !== destination && dv.dist[r][destination] !== Math.min(truth[r], UNREACHABLE) && dv.dist[r][destination] < UNREACHABLE);
+        if (wrong.length && truth[wrong[0]] === Infinity) {
+          return `Round ${dv.round}: ${destination} is cut off, but ${wrong.join(', ')} still ${wrong.length === 1 ? 'believes' : 'believe'} in a route. Each hears a slightly longer route from a neighbour that learned it from them. This is counting to infinity, and it only ends at ${UNREACHABLE}.`;
+        }
+        if (wrong.length) return `Round ${dv.round}: ${wrong.join(', ')} ${wrong.length === 1 ? 'has' : 'have'} a route, but not yet the shortest. Red distances are still wrong.`;
+        return `Round ${dv.round}: news has travelled one more link.`;
+      };
+
+      svg.addEventListener('click', (event) => {
+        const target = event.target as Element;
+        const node = target.closest<SVGGElement>('[data-router]');
+        const link = target.closest<SVGGElement>('[data-link]');
+        if (node) {
+          destination = node.dataset.router!;
+          render(`Showing every router's route to ${destination}. Each arrow points to the neighbour it would hand a packet to.`);
+        } else if (link) {
+          const [a, b] = link.dataset.link!.split(',');
+          dv.toggle(a, b);
+          const cut = dv.cut.has([a, b].sort().join('-'));
+          render(
+            cut
+              ? `The ${a}–${b} link is down. Only ${a} and ${b} notice, and only by finding no neighbour there. Step the rounds to see the news spread.`
+              : `The ${a}–${b} link is back. Step the rounds to see routes use it again.`,
+          );
+        }
+      });
+
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
+        const act = button?.dataset.act;
+        if (!act) return;
+        if (act === 'step') {
+          stop();
+          render(describe(dv.step()));
+        } else if (act === 'run') {
+          stop();
+          timer = window.setInterval(() => {
+            const changed = dv.step();
+            render(describe(changed));
+            if (!changed || dv.round > 60) stop();
+          }, 450);
+        } else if (act === 'split') {
+          dv.splitHorizon = !dv.splitHorizon;
+          button!.setAttribute('aria-pressed', String(dv.splitHorizon));
+          render(
+            dv.splitHorizon
+              ? 'Split horizon with poisoned reverse is on: a router tells the neighbour it routes through that the destination is unreachable. It stops two routers bouncing a dead route between them, but not loops of three or more.'
+              : 'Split horizon is off: every router tells every neighbour its full table.',
+          );
+        } else {
+          stop();
+          const split = dv.splitHorizon;
+          dv = new DistanceVector();
+          dv.splitHorizon = split;
+          render('Every router knows only itself again.');
+        }
+      });
+    }
+  }
+
+  customElements.define('routing-demo', RoutingDemo);
+</script>
