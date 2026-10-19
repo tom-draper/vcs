@@ -33,6 +33,10 @@ To read a piece of data, two mechanical things must happen.
 
 These are physical movements, and they are why disks are slow.
 
+<DiskDrive />
+
+The figure runs 120 times slower than a real disk, so one turn of the platter takes a second. Watch where the time goes. For scattered reads, the head spends almost all of it moving or waiting, and only a few percent reading. Drives with a queue of requests reorder them, serving whichever can start soonest, which saves some of the travel but cannot remove it.
+
 The consequence is a huge difference between two ways of reading.
 
 | | Hard disk |
