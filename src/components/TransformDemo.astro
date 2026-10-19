@@ -1,0 +1,89 @@
+---
+// A letter F carried through a scale, a rotation and a move, in an order the
+// reader chooses. Each stage is drawn, and the single matrix that does all
+// three at once is shown beside it.
+import { compose2, num, transformSvg, transformView, type Op2, type Transform2 } from '../lib/graphics';
+
+const t: Transform2 = { angle: 30, sx: 1.5, sy: 1, tx: 3, ty: 1 };
+const order: Op2[] = ['scale', 'rotate', 'translate'];
+const orders: Op2[][] = [
+  ['scale', 'rotate', 'translate'],
+  ['translate', 'rotate', 'scale'],
+  ['rotate', 'scale', 'translate'],
+  ['rotate', 'translate', 'scale'],
+];
+const m = compose2(order, t);
+const label = (o: Op2[]) => o.map((op) => (op === 'translate' ? 'move' : op)).join(' → ');
+---
+
+<transform-demo class="playground transform-demo">
+  <div class="viz-scroll">
+    <svg class="viz-svg chart gx-chart" viewBox={`0 0 ${transformView.width} ${transformView.height}`} role="img" aria-label="A letter F drawn at the origin in grey, then after each transform in turn, with the final result highlighted" set:html={transformSvg(order, t)} />
+  </div>
+  <p class="tries">
+    Order:
+    {orders.map((o, i) => <button type="button" data-order={o.join(',')} aria-pressed={i === 0 ? 'true' : 'false'}>{label(o)}</button>)}
+  </p>
+  <div class="sliders gx-sliders">
+    <label><span>Rotate by <b data-out="angle">{t.angle}°</b></span><input type="range" name="angle" min="-180" max="180" step="5" value={t.angle} /></label>
+    <label><span>Scale x by <b data-out="sx">{num(t.sx, 1)}</b></span><input type="range" name="sx" min="-2" max="2.5" step="0.1" value={t.sx} /></label>
+    <label><span>Scale y by <b data-out="sy">{num(t.sy, 1)}</b></span><input type="range" name="sy" min="-2" max="2.5" step="0.1" value={t.sy} /></label>
+    <label><span>Move x by <b data-out="tx">{num(t.tx, 1)}</b></span><input type="range" name="tx" min="-5" max="5" step="0.5" value={t.tx} /></label>
+    <label><span>Move y by <b data-out="ty">{num(t.ty, 1)}</b></span><input type="range" name="ty" min="-4" max="4" step="0.5" value={t.ty} /></label>
+  </div>
+  <div class="gx-matrix-row">
+    <span class="gx-matrix-name">One matrix for all three</span>
+    <table class="gx-matrix" data-out="matrix">
+      <tbody>
+        {[0, 1, 2].map((r) => <tr>{[0, 1, 2].map((c) => <td>{num(m[r * 3 + c])}</td>)}</tr>)}
+      </tbody>
+    </table>
+  </div>
+  <p class="hint" data-out="status" aria-live="polite">The grey F is where it starts. Numbers mark each stage, and the last one is the result. Swap the order and watch it land somewhere else.</p>
+</transform-demo>
+
+<script>
+  import { compose2, num, transformSvg, type Op2, type Transform2 } from '../lib/graphics';
+
+  class TransformDemo extends HTMLElement {
+    connectedCallback() {
+      const t: Transform2 = { angle: 30, sx: 1.5, sy: 1, tx: 3, ty: 1 };
+      let order: Op2[] = ['scale', 'rotate', 'translate'];
+      const svg = this.querySelector('svg')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+
+      const render = () => {
+        svg.innerHTML = transformSvg(order, t);
+        out('angle').textContent = `${t.angle}°`;
+        for (const key of ['sx', 'sy', 'tx', 'ty'] as const) out(key).textContent = num(t[key], 1);
+        const m = compose2(order, t);
+        this.querySelectorAll('[data-out="matrix"] td').forEach((cell, i) => (cell.textContent = num(m[i])));
+        const moveFirst = order.indexOf('translate') < order.length - 1;
+        const shear = order.indexOf('rotate') < order.indexOf('scale') && t.sx !== t.sy && t.angle % 90 !== 0;
+        out('status').textContent = moveFirst
+          ? 'The move comes before a rotation or scale, and those act about the origin, so they swing or stretch the move as well. The F lands somewhere the move slider alone would not suggest.'
+          : shear
+            ? 'Turning before an uneven stretch shears the F: the stretch acts along the x and y axes, not along the letter’s own sides, which are now at an angle.'
+            : 'The move comes last, so the F is stretched and turned about its own corner first and then placed. Each slider does what its name says. Most engines use scale, then rotate, then move for this reason.';
+      };
+
+      this.addEventListener('input', (event) => {
+        const input = event.target as HTMLInputElement;
+        if (input.name in t) {
+          t[input.name as keyof Transform2] = Number(input.value);
+          render();
+        }
+      });
+
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-order]');
+        if (!button) return;
+        order = button.dataset.order!.split(',') as Op2[];
+        this.querySelectorAll('[data-order]').forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+        render();
+      });
+    }
+  }
+
+  customElements.define('transform-demo', TransformDemo);
+</script>
