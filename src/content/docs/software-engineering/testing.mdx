@@ -1,0 +1,125 @@
+---
+description: Automated tests run a program on chosen inputs and check the results, so that a change which breaks something is caught in seconds rather than by a user. Coverage measures what the tests run; mutation testing measures whether they would notice a mistake; property-based testing lets the computer choose the inputs.
+difficulty: beginner
+---
+
+Every change to a program risks breaking something that used to work. The more code there is, the less anyone can hold all of it in their head, and the more likely it is that a fix here causes a bug there. Checking everything by hand after every change is slow, and people skip it.
+
+An **automated test** is a small program that runs part of the real program on a chosen input and checks the result. A project has hundreds or thousands of them. Every change runs all of them, usually in seconds or minutes, and any failure points to what broke.
+
+## What a test looks like
+
+```python
+def shipping(total, member):
+    if member:
+        return 0
+    if total >= 50:
+        return 0
+    if total >= 20:
+        return 5
+    return 8
+
+def test_small_order_pays_full_shipping():
+    assert shipping(10, member=False) == 8
+
+def test_members_ship_free():
+    assert shipping(10, member=True) == 0
+```
+
+Each test sets something up, does one thing, and checks one outcome. This shape is often called **arrange, act, assert**. A test runner such as pytest, JUnit or Jest finds every function named like a test, runs it, and reports the ones whose assertions fail.
+
+## Kinds of test
+
+**Unit tests** check one function or class on its own. They are fast, a few milliseconds each, and when one fails it is obvious where the problem is.
+
+**Integration tests** check that pieces work together: the code and a real database, or two services talking over HTTP. They catch the mistakes unit tests cannot, such as a wrong SQL query, at the cost of being slower and more work to set up.
+
+**End-to-end tests** drive the whole system the way a user would, for example clicking through a web page in a real browser. They give the most confidence and are the slowest and most fragile.
+
+The usual advice is a **testing pyramid**: many unit tests, fewer integration tests, and a handful of end-to-end tests for the most important journeys.
+
+## Test doubles
+
+To test a unit alone, its dependencies are often replaced. A function that charges a card should not charge a real card in a test.
+
+- A **stub** returns canned answers: "the payment succeeded".
+- A **fake** is a working but simplified version, such as an in-memory database instead of a real one.
+- A **mock** also records how it was called, so the test can check "the payment was charged exactly once, for £12".
+
+Doubles make tests fast and repeatable, but every double is a guess about how the real thing behaves. Too many, and the tests pass while the real system fails.
+
+## Coverage
+
+How much of the program do the tests exercise? **Line coverage** is the fraction of lines that ran at least once during the tests. **Branch coverage** is stricter: every `if` must have been seen going both ways.
+
+Coverage is useful for finding code that no test touches at all, which is certainly untested. But high coverage does not mean the tests are good. A test that runs a line but checks nothing about its result counts just as much as one that checks it carefully.
+
+<TestDemo />
+
+The four tests switched on run every line of `shipping`: 100% coverage. Now look at the mutants.
+
+## Mutation testing
+
+**Mutation testing** asks a sharper question: if the code were wrong, would the tests notice?
+
+A tool makes many copies of the code, each with one small deliberate bug, a **mutant**: `>=` becomes `>`, a `return 5` becomes `return 0`, a condition is negated or deleted. Then it runs the tests against each mutant. If some test fails, the mutant is **killed**: the tests would have caught that mistake. If all tests pass, it **survived**: that mistake would ship unnoticed.
+
+In the widget, two mutants survive despite full coverage. Both change `>=` to `>` on a boundary. No test uses exactly 50 or exactly 20, so no test can tell the difference. Turn on "exactly 50" and "exactly 20" and every mutant dies. Boundaries are where bugs live, and mutation testing finds the ones the tests skip.
+
+The **mutation score**, the fraction of mutants killed, is a better measure of a test suite than coverage. It is also expensive, since the whole suite runs once per mutant, so it is usually run on changed code or occasionally rather than on every commit. Tools include PIT for Java, Stryker for JavaScript and mutmut for Python.
+
+## Property-based testing
+
+Example tests check the inputs someone thought of. **Property-based testing** checks the ones they did not. Instead of examples, you state a **property** that should hold for every input, and the tool generates hundreds of random inputs to try to break it.
+
+```python
+from hypothesis import given, strategies as st
+
+@given(st.lists(st.integers()))
+def test_sorting(xs):
+    result = my_sort(xs)
+    assert len(result) == len(xs)                         # nothing lost or added
+    assert all(a <= b for a, b in zip(result, result[1:]))  # in order
+    assert sorted(result) == sorted(xs)                   # same elements
+```
+
+When it finds a failing input, the tool **shrinks** it: it tries smaller and simpler versions of the input, keeping any that still fail, until it reaches a minimal example. A failure on a list of 87 random numbers becomes "fails on `[0, -1]`", which is far easier to debug. Hypothesis (Python), QuickCheck (Haskell, where the idea began) and fast-check (JavaScript) do this.
+
+Good properties include round trips (`decode(encode(x)) == x`), invariants (a balanced tree stays balanced after any insert), and comparison with a slow but obviously correct reference version.
+
+## Writing tests first
+
+In **test-driven development** (TDD), you write a failing test for the next small piece of behaviour, write just enough code to make it pass, then tidy the code with the tests as a safety net: red, green, refactor. Whether or not you follow it strictly, writing the test first forces you to decide what the code should do before deciding how.
+
+When a bug is found, the habit worth keeping is to write a **regression test** that reproduces it before fixing it. The test fails, the fix makes it pass, and the bug can never quietly return.
+
+## Flaky tests
+
+A **flaky** test sometimes passes and sometimes fails with no change to the code. Common causes are timing (a test that sleeps for 100 ms and hopes something has finished), shared state between tests, the order tests run in, real network calls, the current date, and unseeded randomness. Flaky tests are corrosive: once people learn that failures are often noise, they stop believing real ones. They should be fixed or removed, not rerun until green.
+
+## Costs
+
+<Ops items={[
+  ['Unit test', 'milliseconds', 'thousands per minute'],
+  ['Integration test', 'tens of ms to seconds', 'real dependencies'],
+  ['End-to-end test', 'seconds to minutes', 'and the most fragile'],
+  ['Mutation testing', 'suite × mutants', 'often run on changed code only'],
+  ['Property test', 'suite × generated cases', 'typically 100 inputs per property'],
+]} />
+
+## Where it is used
+
+**Continuous integration.** Services such as GitHub Actions run the full test suite on every proposed change, and a change cannot be merged until it passes.
+
+**Safety-critical software.** Avionics standards such as DO-178C require that every condition in a decision has been shown to affect its outcome, a far stricter kind of coverage, for the most critical code.
+
+**Refactoring.** A good test suite is what makes it safe to restructure code. Without one, every change is a gamble, and code that nobody dares change stops improving.
+
+## Key takeaways
+
+- An automated test runs part of a program on a chosen input and checks the result. A suite of them catches breakages on every change.
+- Unit tests are fast and precise, integration and end-to-end tests are slower and catch different mistakes.
+- Coverage shows what the tests run, not whether they would notice a bug.
+- Mutation testing plants small bugs and checks that some test fails. Surviving mutants show where the tests are weak, often at boundaries.
+- Property-based testing generates inputs to break a stated property, and shrinks failures to a minimal example.
+- Flaky tests destroy trust in the suite, so fix or remove them.
