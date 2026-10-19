@@ -1,0 +1,158 @@
+---
+// A sphere lit by one light the reader drags around. Switch between flat,
+// Gouraud and Phong shading, and turn the ambient, diffuse and specular terms
+// of the Phong reflection model on and off.
+const SIZE = 280;
+---
+
+<shading-demo class="playground shading-demo" data-size={SIZE}>
+  <div class="viz-scroll">
+    <div class="sh-wrap">
+      <canvas width={SIZE} height={SIZE} role="img" aria-label="A shaded sphere lit by a single light. Drag across it to move the light."></canvas>
+      <span class="sh-light" aria-hidden="true"></span>
+    </div>
+  </div>
+  <p class="tries">
+    Shading:
+    <button type="button" data-model="flat" aria-pressed="false">Flat</button>
+    <button type="button" data-model="gouraud" aria-pressed="false">Gouraud</button>
+    <button type="button" data-model="phong" aria-pressed="true">Phong</button>
+  </p>
+  <p class="tries">
+    Terms:
+    <button type="button" data-term="ambient" aria-pressed="true">Ambient</button>
+    <button type="button" data-term="diffuse" aria-pressed="true">Diffuse</button>
+    <button type="button" data-term="specular" aria-pressed="true">Specular</button>
+  </p>
+  <div class="sliders">
+    <label><span>Shininess <b data-out="shininess">24</b></span><input type="range" name="shininess" min="2" max="200" step="1" value="24" /></label>
+  </div>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>N · L</dt><dd data-out="ndotl">–</dd></div>
+    <div><dt>R · V</dt><dd data-out="rdotv">–</dd></div>
+    <div><dt>Ambient + diffuse + specular</dt><dd data-out="terms">point at the sphere</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">Drag across the sphere to move the light. Point at a spot to see how bright each term makes it.</p>
+</shading-demo>
+
+<script>
+  import { lightingAt, normalize, shadeSphere, type Lighting, type ShadingModel, type Vec3 } from '../lib/graphics';
+
+  const statuses: Record<ShadingModel, string> = {
+    flat: 'Flat shading lights each facet once, at its centre, and paints the whole facet that colour. Cheap, and every facet shows.',
+    gouraud:
+      'Gouraud shading lights only the corners of each facet and blends the colours across it. The facets vanish, but a highlight smaller than a facet is smeared or missed, so it looks blotchy as the light moves.',
+    phong: 'Phong shading blends the normal across each facet and lights every pixel. The highlight is round and sharp wherever it falls.',
+  };
+
+  class ShadingDemo extends HTMLElement {
+    connectedCallback() {
+      const size = Number(this.dataset.size);
+      const canvas = this.querySelector('canvas')!;
+      const ctx = canvas.getContext('2d')!;
+      const image = ctx.createImageData(size, size);
+      const marker = this.querySelector<HTMLElement>('.sh-light')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const lighting: Lighting = { model: 'phong', ambient: true, diffuse: true, specular: true, shininess: 24, light: normalize([-0.55, 0.6, 0.6]) };
+      let hover: [number, number] | null = null;
+      let dragging = false;
+      let queued = false;
+
+      const base = (): [number, number, number] => {
+        const probe = document.createElement('span');
+        probe.style.color = 'var(--series-1)';
+        this.append(probe);
+        const [r, g, b] = getComputedStyle(probe).color.match(/\d+/g)!.map(Number);
+        probe.remove();
+        return [r, g, b];
+      };
+      let colour = base();
+
+      const draw = () => {
+        queued = false;
+        shadeSphere(image.data, size, lighting, colour);
+        ctx.putImageData(image, 0, 0);
+        // The light's marker sits where the light would appear over the sphere.
+        const [lx, ly, lz] = lighting.light;
+        marker.style.left = `${50 + lx * 46}%`;
+        marker.style.top = `${50 - ly * 46}%`;
+        marker.style.opacity = lz < 0 ? '0.35' : '1';
+        const t = hover ? lightingAt(hover[0], hover[1], size, lighting) : null;
+        out('ndotl').textContent = t ? t.nDotL.toFixed(2) : '–';
+        out('rdotv').textContent = t ? t.rDotV.toFixed(2) : '–';
+        out('terms').textContent = t ? `${t.ambient.toFixed(2)} + ${t.diffuse.toFixed(2)} + ${t.specular.toFixed(2)}` : 'point at the sphere';
+      };
+      const render = () => {
+        if (!queued) requestAnimationFrame(draw);
+        queued = true;
+      };
+
+      const pixel = (event: PointerEvent): [number, number] => {
+        const box = canvas.getBoundingClientRect();
+        return [Math.floor(((event.clientX - box.left) / box.width) * size), Math.floor(((event.clientY - box.top) / box.height) * size)];
+      };
+      const moveLight = (event: PointerEvent) => {
+        const box = canvas.getBoundingClientRect();
+        const x = ((event.clientX - box.left) / box.width - 0.5) / 0.46;
+        const y = -((event.clientY - box.top) / box.height - 0.5) / 0.46;
+        const d2 = x * x + y * y;
+        // Inside the disc, the light is in front; dragging past the rim swings it behind.
+        const z = d2 <= 1 ? Math.sqrt(1 - d2) : -Math.min(1, Math.sqrt(d2 - 1));
+        lighting.light = normalize([x, y, z] as Vec3);
+      };
+
+      canvas.addEventListener('pointerdown', (event) => {
+        dragging = true;
+        canvas.setPointerCapture(event.pointerId);
+        moveLight(event);
+        render();
+      });
+      canvas.addEventListener('pointermove', (event) => {
+        if (dragging) moveLight(event);
+        hover = pixel(event);
+        render();
+      });
+      canvas.addEventListener('pointerup', () => (dragging = false));
+      canvas.addEventListener('pointercancel', () => (dragging = false));
+      canvas.addEventListener('pointerleave', () => {
+        hover = null;
+        render();
+      });
+
+      this.addEventListener('input', (event) => {
+        const input = event.target as HTMLInputElement;
+        if (input.name !== 'shininess') return;
+        lighting.shininess = Number(input.value);
+        out('shininess').textContent = input.value;
+        render();
+      });
+
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
+        if (!button) return;
+        if (button.dataset.model) {
+          lighting.model = button.dataset.model as ShadingModel;
+          this.querySelectorAll('[data-model]').forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+          out('status').textContent = statuses[lighting.model];
+        } else if (button.dataset.term) {
+          const term = button.dataset.term as 'ambient' | 'diffuse' | 'specular';
+          lighting[term] = !lighting[term];
+          button.setAttribute('aria-pressed', String(lighting[term]));
+        }
+        render();
+      });
+
+      new MutationObserver(() => {
+        colour = base();
+        render();
+      }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+      matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+        colour = base();
+        render();
+      });
+      draw();
+    }
+  }
+
+  customElements.define('shading-demo', ShadingDemo);
+</script>

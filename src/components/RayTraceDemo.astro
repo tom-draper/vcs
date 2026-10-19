@@ -1,0 +1,150 @@
+---
+// A tiny ray tracer, rendering a row at a time so the reader can watch it.
+// Turn on shading, shadows and reflections one by one, change the resolution,
+// and click a pixel to see every ray traced for it, drawn from above.
+import { topView, topViewSvg } from '../lib/graphics';
+---
+
+<ray-trace-demo class="playground ray-trace-demo">
+  <div class="rt-pair">
+    <div class="viz-scroll rt-image">
+      <canvas width="120" height="75" role="img" aria-label="A ray-traced picture of three balls on a checkerboard floor under a blue sky. Click a pixel to trace its rays."></canvas>
+    </div>
+    <div class="viz-scroll rt-side">
+      <svg class="viz-svg chart" viewBox={`0 0 ${topView.width} ${topView.height}`} role="img" aria-label="The same scene seen from above, with the rays for the chosen pixel drawn on it" set:html={topViewSvg([])} />
+    </div>
+  </div>
+  <p class="tries">
+    <button type="button" data-opt="shading" aria-pressed="false">Light</button>
+    <button type="button" data-opt="shadows" aria-pressed="false">Shadows</button>
+    <button type="button" data-opt="reflections" aria-pressed="false">Reflections</button>
+  </p>
+  <p class="tries">
+    Resolution:
+    <button type="button" data-res="30" aria-pressed="false">30 × 19</button>
+    <button type="button" data-res="60" aria-pressed="false">60 × 38</button>
+    <button type="button" data-res="120" aria-pressed="true">120 × 75</button>
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Primary rays</dt><dd data-out="primary">0</dd></div>
+    <div><dt>Shadow rays</dt><dd data-out="shadow">0</dd></div>
+    <div><dt>Reflection rays</dt><dd data-out="reflection">0</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">One ray per pixel, asking only "what do I hit first?". Turn on the light, then shadows, then reflections. Click any pixel to see its rays from above.</p>
+</ray-trace-demo>
+
+<script>
+  import { topViewSvg, tracePixel, traceRow, type TraceOptions, type TraceStats } from '../lib/graphics';
+
+  const notes: Record<string, string> = {
+    none: 'One ray per pixel, asking only "what do I hit first?". The picture is flat colour, with no light at all. Click a pixel to see its ray from above.',
+    shading: 'At each hit, the brightness depends on the angle between the surface and the direction to the light. The balls look round now.',
+    shadows: 'Each hit also sends a shadow ray towards the light. If anything is in the way, that point is in shadow. Click a shadowed pixel on the floor.',
+    reflections: 'Shiny surfaces send a reflection ray in the mirror direction and mix in whatever it finds, which may bounce again. Click the mirror ball.',
+  };
+
+  class RayTraceDemo extends HTMLElement {
+    connectedCallback() {
+      const canvas = this.querySelector('canvas')!;
+      const ctx = canvas.getContext('2d')!;
+      const svg = this.querySelector('svg')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const options: TraceOptions = { shading: false, shadows: false, reflections: false, depth: 3 };
+      let width = 120;
+      let height = 75;
+      let row = 0;
+      let frame = 0;
+      let stats: TraceStats = { primary: 0, shadow: 0, reflection: 0 };
+      let image = ctx.createImageData(width, height);
+      let picked: [number, number] | null = null;
+      const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      const counts = () => {
+        out('primary').textContent = stats.primary.toLocaleString();
+        out('shadow').textContent = stats.shadow.toLocaleString();
+        out('reflection').textContent = stats.reflection.toLocaleString();
+      };
+
+      const tick = () => {
+        // A few rows a frame, so the scan is visible without dragging on.
+        const rows = reduced ? height : Math.max(1, Math.round(height / 45));
+        for (let i = 0; i < rows && row < height; i++, row++) traceRow(image.data, row, width, height, options, stats);
+        ctx.putImageData(image, 0, 0);
+        if (row < height) {
+          // Draw a scan line under the next row.
+          ctx.fillStyle = 'rgba(255, 220, 80, 0.9)';
+          ctx.fillRect(0, row, width, 1);
+          frame = requestAnimationFrame(tick);
+        } else frame = 0;
+        counts();
+      };
+
+      const restart = () => {
+        cancelAnimationFrame(frame);
+        canvas.width = width;
+        canvas.height = height;
+        image = ctx.createImageData(width, height);
+        row = 0;
+        stats = { primary: 0, shadow: 0, reflection: 0 };
+        pick();
+        frame = requestAnimationFrame(tick);
+      };
+
+      const pick = () => {
+        if (!picked) {
+          svg.innerHTML = topViewSvg([]);
+          return;
+        }
+        const [x, y] = picked;
+        const { path, stats: s, hit } = tracePixel(x, y, width, height, options);
+        svg.innerHTML = topViewSvg(path);
+        const rays = s.primary + s.shadow + s.reflection;
+        const blocked = path.some((seg) => seg.kind === 'shadow' && seg.blocked);
+        out('status').textContent =
+          `Pixel (${x}, ${y}): the first ray hits the ${hit}. ${rays} ${rays === 1 ? 'ray' : 'rays'} traced for this pixel` +
+          (s.shadow ? `, and ${blocked ? 'a shadow ray was blocked, so part of it is in shadow' : 'every shadow ray reached the light'}` : '') +
+          '. Seen from above, so heights are flattened.';
+      };
+
+      canvas.addEventListener('click', (event) => {
+        const box = canvas.getBoundingClientRect();
+        picked = [Math.floor(((event.clientX - box.left) / box.width) * width), Math.floor(((event.clientY - box.top) / box.height) * height)];
+        pick();
+      });
+
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
+        if (!button) return;
+        if (button.dataset.opt) {
+          const opt = button.dataset.opt as 'shading' | 'shadows' | 'reflections';
+          options[opt] = !options[opt];
+          // Shadows and reflections only make sense once there is light.
+          if (opt !== 'shading' && options[opt]) options.shading = true;
+          if (opt === 'shading' && !options.shading) options.shadows = options.reflections = false;
+          this.querySelectorAll<HTMLElement>('[data-opt]').forEach((b) => b.setAttribute('aria-pressed', String(options[b.dataset.opt as keyof TraceOptions])));
+          out('status').textContent = options[opt] ? notes[opt] : notes.none;
+        } else if (button.dataset.res) {
+          width = Number(button.dataset.res);
+          height = Math.round(width / 1.6);
+          picked = null;
+          this.querySelectorAll('[data-res]').forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+          out('status').textContent =
+            width === 30
+              ? 'Thirty pixels across. Each pixel is one sample of the scene, so edges become staircases. Real renderers fire several rays per pixel and average them.'
+              : `${width * height} pixels, so ${width * height} primary rays. Doubling the width and height quadruples the work.`;
+        }
+        restart();
+      });
+
+      // Start once the widget is near the screen, so the scan is seen.
+      const near = new IntersectionObserver(([entry]) => {
+        if (!entry.isIntersecting) return;
+        near.disconnect();
+        restart();
+      });
+      near.observe(this);
+    }
+  }
+
+  customElements.define('ray-trace-demo', RayTraceDemo);
+</script>

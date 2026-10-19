@@ -1,0 +1,130 @@
+---
+// Three houses and a camera, carried from model space to the screen one matrix
+// at a time. The reader steps through the spaces and turns the figure to see
+// each from any side.
+import { coordinates, SPACES, spaceNotes, tracked } from '../lib/graphics';
+
+interface Props {
+  /** `hero` steps through the spaces on a loop with no controls, for the home page. */
+  variant?: 'figure' | 'hero';
+}
+
+const { variant = 'figure' } = Astro.props;
+---
+
+<coordinate-spaces class:list={['plate', 'coordinate-spaces', variant]} data-variant={variant}>
+  <div class="plate-stage">
+    <div
+      class="plate-canvas"
+      role="img"
+      aria-label="Three small houses and a camera's viewing frustum. Stepping through the spaces moves every vertex: the houses are placed in the world, the world is moved so the camera is at the origin, the frustum is squeezed into a cube, and the cube is flattened into the screen."
+    >
+    </div>
+    <div class="plate-labels" aria-hidden="true"></div>
+    {variant === 'figure' && <p class="plate-hint">Drag to turn. Pick a space to move every vertex into it.</p>}
+    <p class="plate-fallback" hidden>This figure needs WebGL to draw. The buttons and readouts still work.</p>
+  </div>
+
+  {
+    variant === 'figure' ? (
+      <div class="plate-panel">
+        <div class="plate-col">
+          <div class="plate-group" role="group" aria-label="Space">
+            <span class="plate-caption">Space</span>
+            <div class="plate-buttons">
+              {SPACES.map((space, i) => (
+                <button type="button" data-space={space} aria-pressed={i === 0 ? 'true' : 'false'}>
+                  {i + 1}. {spaceNotes[space].title.split(',')[0].replace(' space', '')}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div class="plate-group" role="group" aria-label="Play">
+            <span class="plate-caption">Step</span>
+            <div class="plate-buttons">
+              <button type="button" data-act="prev">Back</button>
+              <button type="button" data-act="next">Next space</button>
+            </div>
+          </div>
+        </div>
+        <div class="plate-col">
+          <p class="plate-note" data-out="note">{spaceNotes.model.note}</p>
+          <dl class="plate-facts">
+            <div><dt>Applied to reach it</dt><dd class="sp-fact" data-out="matrix">{spaceNotes.model.matrix}</dd></div>
+            <div><dt>The marked roof corner</dt><dd class="sp-fact word" data-out="coords">{coordinates('model', tracked, 0)}</dd></div>
+          </dl>
+        </div>
+        <p class="plate-verdict" data-out="verdict" data-tone="neutral" aria-live="polite">{spaceNotes.model.title}</p>
+      </div>
+    ) : (
+      <p class="plate-verdict hero-caption" data-out="verdict" data-tone="neutral">{spaceNotes.model.title}</p>
+    )
+  }
+</coordinate-spaces>
+
+<script>
+  import { coordinates, SPACES, spaceNotes, tracked, type Space } from '../lib/graphics';
+  import type { SpacesScene } from '../lib/spaces-scene';
+
+  class CoordinateSpaces extends HTMLElement {
+    private space: Space = 'model';
+    private scene?: SpacesScene;
+    private timer = 0;
+
+    connectedCallback() {
+      const hero = this.dataset.variant === 'hero';
+      const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      this.addEventListener('click', (event) => {
+        const set = (event.target as HTMLElement).closest('button')?.dataset;
+        if (!set) return;
+        const at = SPACES.indexOf(this.space);
+        if (set.space) this.go(set.space as Space);
+        else if (set.act === 'next') this.go(SPACES[(at + 1) % SPACES.length]);
+        else if (set.act === 'prev') this.go(SPACES[(at + SPACES.length - 1) % SPACES.length]);
+      });
+
+      const near = new IntersectionObserver(
+        async ([entry]) => {
+          if (!entry.isIntersecting) return;
+          near.disconnect();
+          try {
+            const { SpacesScene } = await import('../lib/spaces-scene');
+            this.scene = new SpacesScene(this.querySelector<HTMLElement>('.plate-canvas')!, this.querySelector<HTMLElement>('.plate-labels')!, {
+              reducedMotion,
+              autoRotate: hero,
+              interactive: !hero,
+            });
+            if (hero) {
+              this.timer = window.setInterval(() => this.go(SPACES[(SPACES.indexOf(this.space) + 1) % SPACES.length]), 3600);
+            }
+          } catch {
+            this.querySelector<HTMLElement>('.plate-fallback')!.hidden = false;
+            this.classList.add('no-webgl');
+          }
+        },
+        { rootMargin: '200px' },
+      );
+      near.observe(this);
+    }
+
+    disconnectedCallback() {
+      clearInterval(this.timer);
+      this.scene?.dispose();
+    }
+
+    private go(space: Space) {
+      this.space = space;
+      this.scene?.go(space);
+      const out = (name: string) => this.querySelector<HTMLElement>(`[data-out="${name}"]`);
+      this.querySelectorAll<HTMLElement>('[data-space]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.space === space)));
+      const { title, matrix, note } = spaceNotes[space];
+      out('verdict')!.textContent = title;
+      if (out('note')) out('note')!.textContent = note;
+      if (out('matrix')) out('matrix')!.textContent = matrix;
+      if (out('coords')) out('coords')!.textContent = coordinates(space, tracked, 0);
+    }
+  }
+
+  customElements.define('coordinate-spaces', CoordinateSpaces);
+</script>
