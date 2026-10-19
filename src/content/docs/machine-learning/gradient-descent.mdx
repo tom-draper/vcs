@@ -90,7 +90,15 @@ One pass through the whole training set is an **epoch**. Training a large model 
 
 The bowl here has one bottom, because the loss of a linear model with squared error is **convex**. Any path downhill leads to the same answer.
 
-Neural network losses are not convex. They have many dips, long flat plateaus and narrow ravines. Gradient descent only promises to find a point where the ground is flat, which might be a **local minimum** rather than the lowest point anywhere. In practice, for large networks this matters less than once feared, since most local minima turn out to be nearly as good as each other. Plateaus and ravines are the bigger problem.
+Neural network losses are not convex. They have many dips, long flat plateaus and narrow ravines. Gradient descent only promises to find a point where the ground is flat, which might be a **local minimum** rather than the lowest point anywhere.
+
+The surface below is a made-up loss over two parameters with one deepest valley and several shallower ones. Each ball is a training run from a different starting point.
+
+<LossLandscape />
+
+With plain gradient descent, most balls stop in whichever dip is nearest to where they started. Run the same starts with momentum and more of them roll through the shallow dips and find the deepest valley.
+
+In practice, for large networks this matters less than once feared, since most local minima turn out to be nearly as good as each other. Plateaus and ravines are the bigger problem.
 
 Two refinements handle them, and almost every modern training run uses both.
 
