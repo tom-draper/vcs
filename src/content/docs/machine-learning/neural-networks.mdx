@@ -81,7 +81,7 @@ Press "New random weights" and train a few times. The same network on the same d
   ['Memory while training', 'O(W + activations)', 'activations kept for the backward pass'],
 ]} />
 
-The forward pass of a whole layer is one matrix multiplication: the layer's weights times the vector of its inputs, or times a matrix of a whole batch of inputs. This is why neural networks run on [SIMD](/architecture/simd/) hardware and GPUs, which do thousands of multiply-adds at once.
+The forward pass of a whole layer is one matrix multiplication: the layer's weights times the vector of its inputs, or times a matrix of a whole batch of inputs. This is why neural networks run on [SIMD](/architecture/simd/) hardware and [GPUs](/architecture/gpus/), which do thousands of multiply-adds at once.
 
 ## Implementation
 
@@ -105,7 +105,7 @@ In practice you describe the layers in a framework such as PyTorch or JAX, and i
 
 **Images.** Convolutional networks reuse the same small set of weights at every position of an image, so a feature like an edge is detected wherever it appears. They read handwriting, sort photographs and find tumours in scans.
 
-**Language.** Large language models are networks with billions of weights, trained to predict the next word of text. The **transformer** layers inside them let every word weigh up every other word in the passage.
+**Language.** Large language models are networks with billions of weights, trained to predict the next word of text. The [transformer](/machine-learning/attention-and-transformers/) layers inside them let every word weigh up every other word in the passage.
 
 **Speech, translation and recommendation.** Voice assistants, machine translation and the ranking of what you see next on most apps are all neural networks.
 
