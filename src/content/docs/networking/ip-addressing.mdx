@@ -64,7 +64,7 @@ Routers use the same structure on a larger scale. A router does not have an entr
 
 When several entries match, the router takes the one with the longest prefix, since that is the most specific. A packet for `203.0.113.10` matches all three rows above and goes out of interface 2. This is **longest prefix match**, and it is usually implemented with a [trie](/data-structures/tries/) keyed on the bits of the address.
 
-Because addresses are handed out in blocks, a single entry can stand for millions of machines. That aggregation is what keeps the internet's core routing tables to around a million entries instead of billions.
+Because addresses are handed out in blocks, a single entry can stand for millions of machines. That aggregation is what keeps the internet's core routing tables to around a million entries instead of billions. How routers fill in those tables in the first place is the subject of [routing](/networking/routing/).
 
 ## Special addresses
 
