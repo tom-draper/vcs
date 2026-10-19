@@ -1,0 +1,126 @@
+---
+description: Leader election picks one node out of a group to coordinate the rest, and picks a new one when it fails. Simple algorithms such as the bully algorithm work when failures can be detected reliably. Real networks need majority votes, leases with time limits, and fencing tokens so that an old leader that wakes up late cannot do harm.
+difficulty: advanced
+---
+
+Many distributed systems are much simpler with one node in charge. A single primary database accepts all the writes, so they have a clear order. A single scheduler hands out jobs, so no job is run twice. A single node holds a lock, so only one process touches a file. The rest follow.
+
+That node will eventually crash, or be cut off by the network. When it does, the others need to agree on a replacement, and quickly, because nothing that needs a leader can happen until they have one. **Leader election** is the problem of choosing that node.
+
+It has two halves that are easy to state:
+
+- **Safety.** There is never more than one leader at a time.
+- **Liveness.** If the leader fails, a new one is eventually chosen.
+
+Getting both at once, on a real network, turns out to be the hard part.
+
+## The bully algorithm
+
+Give every node a unique id, and agree that the live node with the highest id should lead. The **bully algorithm**, from 1982, finds it.
+
+1. A node that notices the leader is gone sends **ELECTION** to every node with a higher id.
+2. Any live node that receives it replies **OK**, meaning "I outrank you, leave it to me", and starts an election of its own.
+3. A node that hears no OK within a timeout has the highest live id. It sends **COORDINATOR** to everyone and becomes leader.
+
+<ElectionDemo />
+
+Crash the leader, then start an election from node 1. Node 1 challenges everyone above it, they all answer and challenge everyone above them, and node 5 is the one that hears nothing back. Count the messages: starting from the bottom is the worst case, about n² of them. Start from node 5 and it takes a single round. Click a node to crash or restart it. A restarted node with the highest id "bullies" its way back into charge, which is where the name comes from.
+
+The **ring algorithm** (Chang and Roberts, 1979) is the other classic. Nodes sit in a logical ring and pass an election message round it, each adding its id or replacing a smaller one. When the message comes back to where it started, it carries the highest id. It needs O(n log n) messages on average and O(n²) at worst, and always takes a full trip round the ring.
+
+## What these algorithms assume
+
+Both algorithms quietly assume that a node which does not answer has crashed. On a real network, that is exactly what you cannot know. As the page on [failure detection](/distributed-systems/failure-detection/) explains, a silent node might be dead, or slow, or behind a network fault, or paused for a long garbage collection, and from the outside these look the same.
+
+Suppose the network splits so that node 6 is cut off from the others. Nodes 1 to 5 hear nothing from it, hold an election and choose node 5. Node 6, meanwhile, is perfectly healthy and still believes it is the leader. Now there are two. This is **split brain**, and if both accept writes, the data diverges in ways that may never be reconciled.
+
+## Majorities
+
+The fix is to make winning require something that only one node can have at a time: votes from a **majority** of the group.
+
+In [Raft](/distributed-systems/raft/), a node that hears nothing from a leader increments a **term** number and asks the others for their votes. Each node votes at most once per term. A candidate that gets votes from more than half the nodes is leader for that term. Two majorities of the same group always overlap in at least one node, and that node voted only once, so no term can have two leaders.
+
+In the split above, nodes 1 to 5 are a majority of 6 and can elect a leader. Node 6 alone cannot win any election, and once it hears of the higher term, it steps down. A leader on the minority side of a partition can no longer get anything done, which is the trade the [CAP theorem](/distributed-systems/the-cap-theorem/) says must be made: to stay consistent, the minority side stops.
+
+Electing a leader by majority vote is itself a form of [consensus](/distributed-systems/consensus/), so a fully safe election is as hard as consensus. That is why most systems do not build it themselves.
+
+## Leases
+
+A majority vote ensures at most one leader **per term**. It does not stop an old leader from acting on stale beliefs. Node 6 does not know it has been replaced until it hears about the new term, and in the meantime it may still answer requests.
+
+A **lease** puts a time limit on leadership. The leader holds the role only for, say, ten seconds at a time, and must renew it before it runs out. If it cannot reach a majority to renew, it stops acting as leader when the lease expires. The others wait until the lease has expired before electing someone new, so the two never overlap.
+
+Leases rely on clocks. Not synchronised clocks, but clocks that measure the passage of ten seconds roughly the same way, which is a reasonable assumption for most hardware. What they cannot survive is a node that stops without knowing it stopped.
+
+<SequenceDemo scenario="lease-pause" />
+
+Node 1 is paused, by a garbage collector, a virtual machine being migrated, or the operating system swapping it out. Its lease expires and node 2 takes over. Then node 1 resumes, checks nothing, and carries on with the write it was about to make. From its own point of view no time has passed.
+
+## Fencing tokens
+
+The robust fix is to stop trusting the leader to know it is still the leader, and make the resource it writes to check instead.
+
+Each time the lease is granted, the lock service hands out a **fencing token**, a number that only ever increases. The leader attaches its token to every request. The storage remembers the highest token it has seen and refuses anything lower.
+
+<SequenceDemo scenario="lease-fencing" />
+
+It does not matter how long node 1 was paused or what it believes when it wakes. Its token, 33, is lower than 34, which storage has already seen, and its write is rejected. Raft's term numbers do the same job inside Raft: every message carries the sender's term, and a node that sees a higher one knows it is out of date.
+
+## Using a coordination service
+
+Few systems implement any of this themselves. They ask a small, carefully built consensus service to do the election for them.
+
+**ZooKeeper.** Each candidate creates an **ephemeral sequential** node under an election path, such as `/election/n_0000000017`. Ephemeral nodes are deleted automatically when their creator's session ends. The candidate with the lowest number is the leader, and every other candidate watches the one just before it, so that when a leader dies only its successor wakes up. The node's version number serves as a fencing token.
+
+**etcd.** A candidate takes out a lease with a time to live, and tries to create a key attached to it. The first to succeed is leader, and keeps the lease alive. If it dies, the lease expires and the key vanishes. Kubernetes controllers elect their leaders this way, through Lease objects stored in etcd.
+
+**Cloud services.** Managed lock services and databases offer conditional writes, "set this key only if its version is still 41", which give a lease and a fencing token in one operation.
+
+## Implementation
+
+Electing with a coordination service, in outline:
+
+```python
+def run_for_leader(etcd, my_id):
+    lease = etcd.lease(ttl=10)                       # expires unless renewed
+    while True:
+        # Atomically create the key only if nobody holds it.
+        won = etcd.transaction(
+            compare=[etcd.create_revision("/leader") == 0],
+            success=[etcd.put("/leader", my_id, lease=lease)],
+        )
+        if won:
+            token = etcd.get("/leader").mod_revision  # rises with every new leader
+            lead(token, renew=lease.refresh)          # stop if a renewal fails
+        else:
+            etcd.wait_for_delete("/leader")           # the leader's lease ran out
+```
+
+## Costs
+
+<Ops items={[
+  ['Bully, worst case', 'O(n²) messages', 'lowest node starts'],
+  ['Bully, best case', 'O(n) messages', 'second-highest node starts'],
+  ['Ring algorithm', 'O(n log n) messages', 'on average; O(n²) at worst'],
+  ['Raft election', 'O(n) messages', 'one round of votes, if it does not split'],
+  ['Unavailable after a crash', 'timeout + election', 'often a few seconds'],
+]} />
+
+## Where it is used
+
+**Primary databases.** PostgreSQL clusters managed by tools such as Patroni, MySQL group replication and MongoDB replica sets all elect a primary, and fail over to a new one automatically.
+
+**Consensus systems.** Raft and Multi-Paxos use a stable leader to order requests, re-electing only on failure.
+
+**Schedulers and controllers.** Kubernetes runs several copies of its scheduler and controller manager for redundancy, and only the elected one acts.
+
+**Distributed locks.** "Leader" and "lock holder" are the same problem: one node at a time, with a way to recover when it disappears. Fencing tokens apply to both.
+
+## Key takeaways
+
+- Leader election chooses one node to coordinate the others, and a replacement when it fails.
+- The bully algorithm elects the live node with the highest id, but assumes silence means a crash.
+- On real networks, silence can mean slowness or a partition, and naive elections produce split brain.
+- Requiring votes from a majority ensures at most one leader per term. That is consensus.
+- Leases bound how long a leader acts without renewing. Fencing tokens stop an old leader that wakes up late.
+- In practice, systems elect leaders through a coordination service such as ZooKeeper or etcd.
