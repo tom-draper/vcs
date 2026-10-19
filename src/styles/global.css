@@ -5212,3 +5212,93 @@ main {
   color: var(--text-3);
   font: 0.72rem var(--mono);
 }
+
+/* ---------- Leader election ---------- */
+
+.el-chart {
+  max-width: 30rem;
+}
+
+.el-node {
+  cursor: pointer;
+}
+
+.el-node circle {
+  fill: var(--viz-fill);
+  stroke: var(--viz-stroke);
+  stroke-width: 2;
+}
+
+.viz-svg .el-node text {
+  font: 700 14px var(--font);
+}
+
+.el-node.leader circle {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+.el-node.down circle {
+  stroke-dasharray: 4 3;
+  opacity: 0.5;
+}
+
+.viz-svg .el-node.down text {
+  fill: var(--text-3);
+}
+
+.viz-svg .el-tag {
+  fill: var(--text-2);
+  font: 600 11px var(--font) !important;
+}
+
+.el-msg line {
+  stroke-width: 2;
+}
+
+.el-msg.election line { stroke: var(--series-1); }
+.el-msg.election polygon { fill: var(--series-1); }
+.el-msg.ok line { stroke: var(--series-3); }
+.el-msg.ok polygon { fill: var(--series-3); }
+.el-msg.coordinator line { stroke: var(--accent); }
+.el-msg.coordinator polygon { fill: var(--accent); }
+
+.el-msg.lost line {
+  stroke-dasharray: 4 3;
+  opacity: 0.6;
+}
+
+.viz-svg .el-msg.lost text {
+  fill: var(--series-2);
+  font: 700 14px var(--font);
+}
+
+.election-demo button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.el-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1.2rem;
+  margin: 0.6rem 0 0 !important;
+  color: var(--text-2);
+  font: 600 0.75rem var(--mono);
+}
+
+.el-legend span::before {
+  content: '';
+  display: inline-block;
+  width: 1.4rem;
+  height: 0;
+  margin-right: 0.4rem;
+  vertical-align: middle;
+  border-top: 2px solid var(--key);
+}
+
+.el-legend .election { --key: var(--series-1); }
+.el-legend .ok { --key: var(--series-3); }
+.el-legend .coordinator { --key: var(--accent); }
+.el-legend .lost::before { border-top-style: dashed; --key: var(--series-1); }
