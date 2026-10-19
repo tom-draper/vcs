@@ -3,6 +3,8 @@ import { getCollection } from 'astro:content';
 import Base from '../layouts/Base.astro';
 import CacheHierarchy from '../components/CacheHierarchy.astro';
 import CodeCube from '../components/CodeCube.astro';
+import DiskDrive from '../components/DiskDrive.astro';
+import LossLandscape from '../components/LossLandscape.astro';
 import { allPages, parts } from '../outline';
 import { url } from '../lib/url';
 
@@ -27,6 +29,22 @@ const heroes = [
     Figure: CacheHierarchy,
     caption:
       'The core, three caches and main memory, each farther away and slower than the last. Every read travels out to the nearest level that holds its data, and the whole line comes back.',
+  },
+  {
+    id: 'loss-landscape',
+    page: 'machine-learning/gradient-descent',
+    link: 'Explore the loss landscape',
+    Figure: LossLandscape,
+    caption:
+      'A loss surface with one deepest valley and several shallower ones. Each ball is a training run rolling downhill, first by plain gradient descent and then with momentum.',
+  },
+  {
+    id: 'disk-drive',
+    page: 'architecture/storage-devices',
+    link: 'Explore the hard disk',
+    Figure: DiskDrive,
+    caption:
+      'A hard disk, slowed 120 times. Every read waits for the arm to reach its track, then for the sector to spin round to the head.',
   },
 ].filter((hero) => written.has(hero.page));
 ---
