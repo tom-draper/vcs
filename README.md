@@ -232,7 +232,13 @@ They sit in a `.plate` and share the `.plate-*` panel classes.
   without controls.
 - `<CacheHierarchy />` stands the core, L1, L2, L3 and RAM in a row, farther for slower,
   and plays access patterns through them a line at a time. "Draw to scale" moves each
-  level to a distance proportional to its latency.
+  level to a distance proportional to its latency. Its `variant="hero"` plays each
+  access pattern in turn, without controls.
+
+The home page shows one of these figures beside the title, picked at random on each
+visit (never the same one twice in a row), and its link goes to the page the figure
+comes from. To add a figure to the rotation, give it a `hero` variant and add it to
+`heroes` in `src/pages/index.astro`. Only the chosen figure loads three.js.
 
 Plates have no box: the canvas is painted in the page colour with feathered edges, and
 scenes read their colours from the `--plate-*` tokens through `ink()`, so they follow the

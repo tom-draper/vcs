@@ -1,13 +1,34 @@
 ---
 import { getCollection } from 'astro:content';
 import Base from '../layouts/Base.astro';
+import CacheHierarchy from '../components/CacheHierarchy.astro';
 import CodeCube from '../components/CodeCube.astro';
 import { allPages, parts } from '../outline';
 import { url } from '../lib/url';
 
 const written = new Set((await getCollection('docs')).map((entry) => entry.id));
 const first = allPages.find((page) => written.has(page.id));
-const cubePage = 'information/error-correcting-codes';
+
+// The 3D figures that can stand beside the title. One is picked at random on
+// each visit, and the link under the title goes to the page it comes from.
+const heroes = [
+  {
+    id: 'code-cube',
+    page: 'information/error-correcting-codes',
+    link: 'Explore the code cube',
+    Figure: CodeCube,
+    caption:
+      'Every word is a corner, and every edge flips one bit. Three bits make a cube, four make a tesseract. A code picks corners far enough apart that a damaged word can find its way home.',
+  },
+  {
+    id: 'cache-hierarchy',
+    page: 'architecture/cpu-caches',
+    link: 'Explore the memory hierarchy',
+    Figure: CacheHierarchy,
+    caption:
+      'The core, three caches and main memory, each farther away and slower than the last. Every read travels out to the nearest level that holds its data, and the whole line comes back.',
+  },
+].filter((hero) => written.has(hero.page));
 ---
 
 <Base>
@@ -22,7 +43,7 @@ const cubePage = 'information/error-correcting-codes';
         </p>
         <div class="actions">
           {first && <a class="cta" href={url(first.id)}>Start reading</a>}
-          {written.has(cubePage) && <a href={url(cubePage)}>Explore the code cube</a>}
+          {heroes[0] && <a data-hero-link href={url(heroes[0].page)}>{heroes[0].link}</a>}
         </div>
         <p class="progress">
           {
@@ -32,14 +53,41 @@ const cubePage = 'information/error-correcting-codes';
           }
         </p>
       </div>
-      <figure class="hero-figure">
-        <CodeCube variant="hero" />
-        <figcaption>
-          Every word is a corner, and every edge flips one bit. Three bits make a cube, four
-          make a tesseract. A code picks corners far enough apart that a damaged word can find
-          its way home.
-        </figcaption>
-      </figure>
+      {
+        heroes.map(({ id, Figure, caption }, index) => (
+          <figure class="hero-figure" data-hero={id} hidden={index > 0}>
+            <Figure variant="hero" />
+            <figcaption>{caption}</figcaption>
+          </figure>
+        ))
+      }
+      <script
+        is:inline
+        define:vars={{ choices: heroes.map(({ id, page, link }) => ({ id, href: url(page), link })) }}
+      >
+        // Runs while the page is parsed, before the figures load three.js, so
+        // only the chosen one ever draws. Avoid repeating the last visit's pick.
+        (() => {
+          let last = null;
+          try {
+            last = localStorage.getItem('hero');
+          } catch {}
+          const pool = choices.length > 1 ? choices.filter((c) => c.id !== last) : choices;
+          const pick = pool[Math.floor(Math.random() * pool.length)];
+          if (!pick) return;
+          try {
+            localStorage.setItem('hero', pick.id);
+          } catch {}
+          document.querySelectorAll('[data-hero]').forEach((figure) => {
+            figure.hidden = figure.dataset.hero !== pick.id;
+          });
+          const link = document.querySelector('[data-hero-link]');
+          if (link) {
+            link.href = pick.href;
+            link.textContent = pick.link;
+          }
+        })();
+      </script>
     </section>
 
     <section class="contents" aria-labelledby="contents">
