@@ -1,0 +1,122 @@
+---
+// The error of every possible line, as a shaded map, and a walker that
+// repeatedly steps downhill from wherever the reader starts it.
+import { descend, descentPlot, descentPoints, descentSvg, fmt } from '../lib/learning';
+
+const start = { w: -0.5, b: -2 };
+const path = descend(descentPoints, start, 0.1, 0);
+---
+
+<descent-demo class="playground descent-demo">
+  <div class="viz-scroll">
+    <svg class="viz-svg chart ml-chart" viewBox={`0 0 ${descentPlot.width} ${descentPlot.height}`} role="img" aria-label="The error of every slope and intercept, shaded darker where it is lower, with the path of gradient descent" set:html={descentSvg(descentPoints, path)} />
+  </div>
+  <p class="tries">
+    Learning rate:
+    {[0.02, 0.1, 0.5, 0.7].map((rate) => <button type="button" data-rate={rate} aria-pressed={rate === 0.1 ? 'true' : 'false'}>{rate}</button>)}
+  </p>
+  <p class="tries">
+    <button type="button" data-act="step">One step</button>
+    <button type="button" data-act="run">Run 30 steps</button>
+    <button type="button" data-act="reset">Back to the start</button>
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Steps</dt><dd data-out="steps">0</dd></div>
+    <div><dt>Line</dt><dd data-out="line">w = {fmt(start.w)}, b = {fmt(start.b)}</dd></div>
+    <div><dt>Error</dt><dd data-out="loss">{fmt(path[0].loss, 3)}</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">Each spot on the map is one line. Darker means a smaller error, and the cross is the best line. Click the map to start somewhere else.</p>
+</descent-demo>
+
+<script>
+  import { descend, descentPlot as plot, descentPoints, descentSvg, fmt, leastSquares, meanSquaredError } from '../lib/learning';
+  import type { Line } from '../lib/learning';
+
+  class DescentDemo extends HTMLElement {
+    connectedCallback() {
+      let start: Line = { w: -0.5, b: -2 };
+      let rate = 0.1;
+      let steps = 0;
+      let timer = 0;
+      const svg = this.querySelector('svg')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+
+      // The error of the best line, the bottom of the valley.
+      const floor = meanSquaredError(descentPoints, leastSquares(descentPoints));
+
+      const describe = (path: ReturnType<typeof descend>) => {
+        const here = path.at(-1)!;
+        if (here.loss > 1e3 || (path.length > 4 && here.loss > path[0].loss * 2)) {
+          return `The steps are too big. Each one overshoots the valley by more than it started, so the error grows every step and the walk flies off the map.`;
+        }
+        if (path.length > 2) {
+          const [a, b, c] = path.slice(-3);
+          const zigzag = (b.w - a.w) * (c.w - b.w) < 0 || (b.b - a.b) * (c.b - b.b) < 0;
+          if (zigzag && here.loss - floor > 0.005) return 'The steps overshoot and bounce from one side of the valley to the other, but each bounce is smaller, so it still settles.';
+        }
+        if (here.loss - floor < 0.001) return 'At the bottom. The slope is flat here, so the steps have shrunk to nothing. This is the least-squares line.';
+        if (rate <= 0.02) return 'Small, safe steps. They head the right way but it will take hundreds of them to arrive.';
+        return 'Each step goes straight downhill, the opposite way to the gradient, by an amount proportional to how steep it is.';
+      };
+
+      const render = (status?: string) => {
+        const path = descend(descentPoints, start, rate, steps);
+        const here = path.at(-1)!;
+        svg.innerHTML = descentSvg(descentPoints, path);
+        out('steps').textContent = String(path.length - 1);
+        out('line').textContent = `w = ${fmt(here.w)}, b = ${fmt(here.b)}`;
+        out('loss').textContent = here.loss > 1e5 ? 'enormous' : fmt(here.loss, 3);
+        out('status').textContent = status ?? describe(path);
+        return path;
+      };
+
+      const stop = () => {
+        clearInterval(timer);
+        timer = 0;
+      };
+
+      svg.addEventListener('click', (event) => {
+        const box = svg.getBoundingClientRect();
+        const point = plot.data(((event.clientX - box.left) / box.width) * plot.width, ((event.clientY - box.top) / box.height) * plot.height);
+        if (!plot.inside(point)) return;
+        stop();
+        start = { w: point.x, b: point.y };
+        steps = 0;
+        render('A new starting line. Take some steps.');
+      });
+
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.rate) {
+          stop();
+          rate = Number(button.dataset.rate);
+          for (const other of this.querySelectorAll('[data-rate]')) other.setAttribute('aria-pressed', String(other === button));
+          steps = 0;
+          render(`Learning rate ${rate}. Back at the start; take some steps.`);
+          return;
+        }
+        const act = button.dataset.act;
+        if (act === 'step') {
+          stop();
+          steps += 1;
+          render();
+        } else if (act === 'run') {
+          stop();
+          let left = 30;
+          timer = window.setInterval(() => {
+            steps += 1;
+            const path = render();
+            if (--left === 0 || path.length <= steps) stop();
+          }, 90);
+        } else if (act === 'reset') {
+          stop();
+          steps = 0;
+          render('Back at the start.');
+        }
+      });
+    }
+  }
+
+  customElements.define('descent-demo', DescentDemo);
+</script>

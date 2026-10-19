@@ -1,0 +1,111 @@
+---
+// A scatter of points and a line the reader steers. Each point's error is
+// drawn as a square, so the best line is the one with the least total area.
+import { fmt, leastSquares, meanSquaredError, regressionPlot, regressionPoints, regressionSvg } from '../lib/learning';
+
+const line = { w: 0.3, b: 4 };
+const best = leastSquares(regressionPoints);
+---
+
+<regression-demo class="playground regression-demo">
+  <div class="viz-scroll">
+    <svg class="viz-svg chart ml-chart" viewBox={`0 0 ${regressionPlot.width} ${regressionPlot.height}`} role="img" aria-label="Points with a line through them; each point's error is drawn as a square" set:html={regressionSvg(regressionPoints, line, null)} />
+  </div>
+  <div class="sliders">
+    <label><span>Slope w = <b data-out="w">{fmt(line.w)}</b></span><input type="range" name="w" min="-1" max="2" step="0.01" value={line.w} /></label>
+    <label><span>Intercept b = <b data-out="b">{fmt(line.b)}</b></span><input type="range" name="b" min="-3" max="8" step="0.05" value={line.b} /></label>
+  </div>
+  <p class="tries">
+    <button type="button" data-act="best">Snap to least squares</button>
+    <button type="button" data-act="compare">Show the best line</button>
+    <button type="button" data-act="outlier">Add an outlier</button>
+    <button type="button" data-act="reset">Reset</button>
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Your line</dt><dd data-out="equation">y = {fmt(line.w)}x + {fmt(line.b)}</dd></div>
+    <div><dt>Mean squared error</dt><dd data-out="error">{fmt(meanSquaredError(regressionPoints, line), 3)}</dd></div>
+    <div><dt>Best possible</dt><dd data-out="best">{fmt(meanSquaredError(regressionPoints, best), 3)}</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">Move the sliders to shrink the squares. Click the chart to add a point, or click a point to remove it.</p>
+</regression-demo>
+
+<script>
+  import { fmt, leastSquares, meanSquaredError, regressionPlot as plot, regressionPoints, regressionSvg } from '../lib/learning';
+  import type { Line, Point } from '../lib/learning';
+
+  class RegressionDemo extends HTMLElement {
+    connectedCallback() {
+      let points: Point[] = regressionPoints.map((p) => ({ ...p }));
+      let line: Line = { w: 0.3, b: 4 };
+      let compare = false;
+      const svg = this.querySelector('svg')!;
+      const slider = (name: string) => this.querySelector<HTMLInputElement>(`input[name="${name}"]`)!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+
+      const render = (status?: string) => {
+        const best = leastSquares(points);
+        svg.innerHTML = regressionSvg(points, line, compare ? best : null);
+        slider('w').value = String(line.w);
+        slider('b').value = String(line.b);
+        out('w').textContent = fmt(line.w);
+        out('b').textContent = fmt(line.b);
+        out('equation').textContent = `y = ${fmt(line.w)}x ${line.b < 0 ? '−' : '+'} ${fmt(Math.abs(line.b))}`;
+        const error = meanSquaredError(points, line);
+        const floor = meanSquaredError(points, best);
+        out('error').textContent = fmt(error, 3);
+        out('best').textContent = `${fmt(floor, 3)} (y = ${fmt(best.w)}x ${best.b < 0 ? '−' : '+'} ${fmt(Math.abs(best.b))})`;
+        if (status) out('status').textContent = status;
+        else if (points.length < 2) out('status').textContent = 'With fewer than two points, any line through them is as good as another.';
+        else if (error - floor < 0.002) out('status').textContent = 'This is the least-squares line. No other line has a smaller total area of squares.';
+        else out('status').textContent = `${fmt(error / Math.max(floor, 1e-9), 1)} times the smallest possible error. Keep going, or snap to the answer.`;
+      };
+
+      this.addEventListener('input', (event) => {
+        const input = event.target as HTMLInputElement;
+        if (input.name === 'w' || input.name === 'b') {
+          line = { ...line, [input.name]: Number(input.value) };
+          render();
+        }
+      });
+
+      svg.addEventListener('click', (event) => {
+        const box = svg.getBoundingClientRect();
+        const px = ((event.clientX - box.left) / box.width) * plot.width;
+        const py = ((event.clientY - box.top) / box.height) * plot.height;
+        const hit = points.findIndex((p) => Math.hypot(plot.px(p.x) - px, plot.py(p.y) - py) < 9);
+        if (hit >= 0) {
+          points.splice(hit, 1);
+          render();
+          return;
+        }
+        const point = plot.data(px, py);
+        if (!plot.inside(point)) return;
+        points.push({ x: Math.round(point.x * 10) / 10, y: Math.round(point.y * 10) / 10 });
+        render();
+      });
+
+      this.addEventListener('click', (event) => {
+        const act = (event.target as HTMLElement).closest('button')?.dataset.act;
+        if (!act) return;
+        if (act === 'best') {
+          const { w, b } = leastSquares(points);
+          line = { w: Math.round(w * 100) / 100, b: Math.round(b * 100) / 100 };
+          render('Snapped to the least-squares line, worked out directly from the points with one formula.');
+        } else if (act === 'compare') {
+          compare = !compare;
+          (event.target as HTMLElement).closest('button')!.textContent = compare ? 'Hide the best line' : 'Show the best line';
+          render();
+        } else if (act === 'outlier') {
+          points.push({ x: 8.5, y: 1 });
+          render('One point far from the rest. Its error is squared, so its square is huge, and the best line tilts a long way towards it.');
+        } else {
+          points = regressionPoints.map((p) => ({ ...p }));
+          line = { w: 0.3, b: 4 };
+          render('Back to the original points.');
+        }
+      });
+    }
+  }
+
+  customElements.define('regression-demo', RegressionDemo);
+</script>
