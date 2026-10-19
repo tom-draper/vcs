@@ -1,0 +1,87 @@
+---
+// Fits polynomials of rising degree to ten noisy points and scores each one on
+// forty points it never saw. Training error only falls; test error turns back up.
+import { errorCurveSvg, errorPlot, fitReport, fmt, maxDegree, overfitPlot, overfitSvg } from '../lib/learning';
+
+const degree = 1;
+const report = fitReport(degree, 0);
+---
+
+<overfit-demo class="playground overfit-demo">
+  <div class="viz-scroll">
+    <svg class="viz-svg chart ml-chart" viewBox={`0 0 ${overfitPlot.width} ${overfitPlot.height}`} role="img" aria-label="A polynomial fitted to ten training points, with the true curve and forty test points" set:html={overfitSvg(report)} />
+  </div>
+  <p class="ml-legend">
+    <span><i class="key-line"></i>fitted curve</span>
+    <span><i class="key-truth"></i>true rule</span>
+    <span><i class="key-train"></i>training point</span>
+    <span><i class="key-test"></i>test point</span>
+  </p>
+  <div class="sliders">
+    <label><span>Polynomial degree: <b data-out="degree">{degree}</b></span><input type="range" name="degree" min="0" max={maxDegree} step="1" value={degree} /></label>
+  </div>
+  <p class="tries">
+    Penalty λ:
+    {[0, 0.0001, 0.01, 0.1].map((penalty) => <button type="button" data-penalty={penalty} aria-pressed={penalty === 0 ? 'true' : 'false'}>{penalty}</button>)}
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Training error</dt><dd data-out="train">{fmt(report.train, 3)}</dd></div>
+    <div><dt>Test error</dt><dd data-out="test">{fmt(report.test, 3)}</dd></div>
+  </dl>
+  <h4>Error at every degree</h4>
+  <div class="viz-scroll">
+    <svg class="viz-svg chart ml-chart" data-out="curve" viewBox={`0 0 ${errorPlot.width} ${errorPlot.height}`} role="img" aria-label="Training and test error against polynomial degree" set:html={errorCurveSvg(0, degree)} />
+  </div>
+  <p class="ml-legend">
+    <span><i class="key-train-line"></i>training error</span>
+    <span><i class="key-test-line"></i>test error</span>
+  </p>
+  <p class="hint" data-out="status" aria-live="polite">A straight line is too simple for this curve. Raise the degree.</p>
+</overfit-demo>
+
+<script>
+  import { errorCurveSvg, fitReport, fmt, maxDegree, overfitSvg } from '../lib/learning';
+
+  class OverfitDemo extends HTMLElement {
+    connectedCallback() {
+      let degree = 1;
+      let penalty = 0;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const chart = this.querySelector('svg')!;
+
+      const render = () => {
+        const report = fitReport(degree, penalty);
+        chart.innerHTML = overfitSvg(report);
+        out('curve').innerHTML = errorCurveSvg(penalty, degree);
+        out('degree').textContent = String(degree);
+        out('train').textContent = fmt(report.train, 3);
+        out('test').textContent = report.test > 10 ? fmt(report.test, 0) : fmt(report.test, 3);
+        let status: string;
+        if (degree === maxDegree && penalty === 0) status = `Degree ${maxDegree} has ${maxDegree + 1} coefficients for ${maxDegree + 1} points, so it passes through every one: zero training error. Between the points it swings wildly, and on new data it is the worst model here.`;
+        else if (degree <= 2) status = 'Underfitting. The curve is too simple to follow the data, so it is wrong on training and test points alike.';
+        else if (report.test < 0.09) status = 'About right. The curve follows the trend and ignores the noise, and it does as well on the test points as on the training points.';
+        else if (penalty > 0 && report.train > 0.15) status = 'The penalty is so strong that it flattens even the real shape. Too much regularisation underfits.';
+        else if (penalty > 0) status = 'The penalty keeps the coefficients small, so even a high-degree curve stays smooth and the test error stays low.';
+        else status = 'Overfitting. Training error keeps falling, but the curve is bending to fit the noise, and test error is climbing.';
+        out('status').textContent = status;
+      };
+
+      this.addEventListener('input', (event) => {
+        const input = event.target as HTMLInputElement;
+        if (input.name !== 'degree') return;
+        degree = Number(input.value);
+        render();
+      });
+
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-penalty]');
+        if (!button) return;
+        penalty = Number(button.dataset.penalty);
+        for (const other of this.querySelectorAll('[data-penalty]')) other.setAttribute('aria-pressed', String(other === button));
+        render();
+      });
+    }
+  }
+
+  customElements.define('overfit-demo', OverfitDemo);
+</script>

@@ -1,0 +1,76 @@
+---
+// One neuron drawn as a graph of small operations. The reader steps through
+// the forward pass, then the backward pass that finds every gradient with the
+// chain rule, then the weight update, and repeats.
+import { backpropSvg, evaluate, fmt, startNeuron } from '../lib/learning';
+---
+
+<backprop-demo class="playground backprop-demo">
+  <div class="viz-scroll">
+    <svg class="viz-svg chart ml-chart ml-graph" viewBox="0 0 640 300" role="img" aria-label="The computation graph of one neuron, with values computed forwards and gradients passed backwards" set:html={backpropSvg(startNeuron, 0)} />
+  </div>
+  <p class="tries">
+    <button type="button" data-act="step">Next step</button>
+    <button type="button" data-act="round">Finish this round</button>
+    <button type="button" data-act="reset">Reset</button>
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Round</dt><dd data-out="round">1</dd></div>
+    <div><dt>Loss at the start of the round</dt><dd data-out="loss">{fmt(evaluate(startNeuron).value.L, 3)}</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">The inputs, weights and target are known. Step forward to compute the neuron's answer.</p>
+</backprop-demo>
+
+<script>
+  import { backpropRound, backpropSvg, evaluate, explain, fmt, startNeuron, update } from '../lib/learning';
+
+  const RATE = 1;
+
+  class BackpropDemo extends HTMLElement {
+    connectedCallback() {
+      let neuron = { ...startNeuron };
+      let index = 0;
+      let round = 1;
+      const svg = this.querySelector('svg')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+
+      const render = (status: string) => {
+        svg.innerHTML = backpropSvg(neuron, index);
+        out('round').textContent = String(round);
+        out('loss').textContent = fmt(evaluate(neuron).value.L, 3);
+        out('status').textContent = status;
+      };
+
+      /** Runs the next event and describes it. After the update, a new round begins. */
+      const advance = () => {
+        const event = backpropRound[index];
+        const status = explain(neuron, index, RATE);
+        if (event.phase === 'update') {
+          neuron = update(neuron, RATE);
+          index = 0;
+          round += 1;
+          render(`${status} With the new weights the loss is ${fmt(evaluate(neuron).value.L, 3)}.`);
+        } else {
+          index += 1;
+          render(status);
+        }
+        return event.phase;
+      };
+
+      this.addEventListener('click', (event) => {
+        const act = (event.target as HTMLElement).closest('button')?.dataset.act;
+        if (act === 'step') advance();
+        else if (act === 'round') {
+          while (advance() !== 'update');
+        } else if (act === 'reset') {
+          neuron = { ...startNeuron };
+          index = 0;
+          round = 1;
+          render('Back to the starting weights.');
+        }
+      });
+    }
+  }
+
+  customElements.define('backprop-demo', BackpropDemo);
+</script>

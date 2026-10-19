@@ -1,0 +1,131 @@
+---
+// Trains a tiny neural network to separate two kinds of point in the plane,
+// shading what it currently believes everywhere and drawing its weights.
+import { dataset, fieldPlot, fieldSvg, fmt, Network, networkSvg } from '../lib/learning';
+
+const points = dataset('xor');
+const net = new Network(0);
+---
+
+<network-demo class="playground network-demo">
+  <div class="ml-pair">
+    <div class="viz-scroll">
+      <svg class="viz-svg chart ml-chart" data-out="field" viewBox={`0 0 ${fieldPlot.width} ${fieldPlot.height}`} role="img" aria-label="Training points of two classes, over a shading of the network's prediction at every point" set:html={fieldSvg(net, points)} />
+    </div>
+    <div class="viz-scroll">
+      <svg class="viz-svg chart ml-chart ml-net" data-out="net" viewBox="0 0 240 340" role="img" aria-label="The network's units and weights; thicker lines are larger weights" set:html={networkSvg(net)} />
+    </div>
+  </div>
+  <p class="tries">
+    Data:
+    {(['line', 'xor', 'circle'] as const).map((name) => <button type="button" data-set={name} aria-pressed={name === 'xor' ? 'true' : 'false'}>{name}</button>)}
+  </p>
+  <p class="tries">
+    Hidden units:
+    {[0, 2, 4, 8].map((n) => <button type="button" data-hidden={n} aria-pressed={n === 0 ? 'true' : 'false'}>{n}</button>)}
+  </p>
+  <p class="tries">
+    <button type="button" data-act="train">Train</button>
+    <button type="button" data-act="reset">New random weights</button>
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Epochs</dt><dd data-out="epoch">0</dd></div>
+    <div><dt>Loss</dt><dd data-out="loss">{fmt(net.loss(points), 3)}</dd></div>
+    <div><dt>Accuracy</dt><dd data-out="accuracy">{fmt(net.accuracy(points) * 100, 0)}%</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">A single neuron with random weights, facing the XOR pattern. Press Train.</p>
+</network-demo>
+
+<script>
+  import { dataset, fieldSvg, fmt, Network, networkSvg } from '../lib/learning';
+  import type { Dataset } from '../lib/learning';
+
+  const EPOCHS = 1500;
+  const PER_FRAME = 15;
+
+  class NetworkDemo extends HTMLElement {
+    connectedCallback() {
+      let name: Dataset = 'xor';
+      let hidden = 0;
+      let seed = 1;
+      let points = dataset(name);
+      let net = new Network(hidden, seed);
+      let frame = 0;
+      const out = (key: string) => this.querySelector(`[data-out="${key}"]`)!;
+      const trainButton = this.querySelector<HTMLButtonElement>('[data-act="train"]')!;
+
+      const summary = () => {
+        const accuracy = net.accuracy(points);
+        if (net.epoch === 0) return 'Random weights, so the shading is a guess. Press Train.';
+        if (accuracy > 0.97) return hidden === 0
+          ? 'Solved by a single neuron. Its boundary is a straight line, and this data happens to be split by one.'
+          : `Solved. Each hidden unit draws one straight boundary, and the output combines them into the curved region you see.`;
+        if (hidden === 0) return 'A single neuron can only draw one straight line. No line separates these classes, so it settles for a poor compromise.';
+        if (hidden <= 2 && name === 'circle') return 'Two hidden units give two straight edges, which is not enough to enclose a disc. Try four.';
+        return 'Not there yet. Train some more, or try new random weights: training can stall in a poor spot.';
+      };
+
+      const render = (status?: string) => {
+        out('field').innerHTML = fieldSvg(net, points);
+        out('net').innerHTML = networkSvg(net);
+        out('epoch').textContent = String(net.epoch);
+        out('loss').textContent = fmt(net.loss(points), 3);
+        out('accuracy').textContent = `${fmt(net.accuracy(points) * 100, 0)}%`;
+        out('status').textContent = status ?? summary();
+      };
+
+      const stop = () => {
+        cancelAnimationFrame(frame);
+        frame = 0;
+        trainButton.textContent = 'Train';
+      };
+
+      const tick = (target: number) => {
+        for (let i = 0; i < PER_FRAME && net.epoch < target; i++) net.train(points, 0.8);
+        if (net.epoch < target) {
+          render('Training: each epoch runs every point forward, passes the errors back, and nudges every weight downhill.');
+          frame = requestAnimationFrame(() => tick(target));
+        } else {
+          stop();
+          render();
+        }
+      };
+
+      const restart = () => {
+        stop();
+        net = new Network(hidden, seed);
+        render();
+      };
+
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
+        if (!button) return;
+        const group = (key: string) => {
+          for (const other of this.querySelectorAll(`[data-${key}]`)) other.setAttribute('aria-pressed', String(other === button));
+        };
+        if (button.dataset.set) {
+          name = button.dataset.set as Dataset;
+          points = dataset(name);
+          group('set');
+          restart();
+        } else if (button.dataset.hidden) {
+          hidden = Number(button.dataset.hidden);
+          group('hidden');
+          restart();
+        } else if (button.dataset.act === 'reset') {
+          seed += 1;
+          restart();
+        } else if (frame) {
+          stop();
+          render();
+        } else {
+          trainButton.textContent = 'Pause';
+          const target = net.epoch + EPOCHS;
+          frame = requestAnimationFrame(() => tick(target));
+        }
+      });
+    }
+  }
+
+  customElements.define('network-demo', NetworkDemo);
+</script>

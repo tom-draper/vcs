@@ -1,0 +1,98 @@
+---
+// Lloyd's algorithm on a scatter of points, one half-step at a time: assign
+// every point to its nearest centre, then move each centre to its points' mean.
+import { clusterPlot, clusterPoints, fmt, KMeans, kmeansSvg } from '../lib/learning';
+
+const model = new KMeans(clusterPoints, 4, 2);
+---
+
+<kmeans-demo class="playground kmeans-demo">
+  <div class="viz-scroll">
+    <svg class="viz-svg chart ml-chart" viewBox={`0 0 ${clusterPlot.width} ${clusterPlot.height}`} role="img" aria-label="Points coloured by cluster, with each cluster's centre marked" set:html={kmeansSvg(model)} />
+  </div>
+  <p class="tries">
+    k:
+    {[2, 3, 4, 5].map((k) => <button type="button" data-k={k} aria-pressed={k === 4 ? 'true' : 'false'}>{k}</button>)}
+  </p>
+  <p class="tries">
+    <button type="button" data-act="step">Next half-step</button>
+    <button type="button" data-act="run">Run to the end</button>
+    <button type="button" data-act="random">New random start</button>
+    <button type="button" data-act="plus-plus">k-means++ start</button>
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Rounds</dt><dd data-out="rounds">0</dd></div>
+    <div><dt>Next</dt><dd data-out="next">assign</dd></div>
+    <div><dt>Total squared distance</dt><dd data-out="inertia">{fmt(model.inertia(), 1)}</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">Four centres, placed on four points chosen at random. Take a step.</p>
+</kmeans-demo>
+
+<script>
+  import { clusterPoints, fmt, KMeans, kmeansSvg } from '../lib/learning';
+  import type { Seeding } from '../lib/learning';
+
+  class KMeansDemo extends HTMLElement {
+    connectedCallback() {
+      let k = 4;
+      let seed = 2;
+      let seeding: Seeding = 'random';
+      let model = new KMeans(clusterPoints, k, seed);
+      let timer = 0;
+      const svg = this.querySelector('svg')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+
+      const render = (status: string) => {
+        svg.innerHTML = kmeansSvg(model);
+        out('rounds').textContent = String(model.iteration);
+        out('next').textContent = model.converged ? 'done' : model.next;
+        out('inertia').textContent = fmt(model.inertia(), 1);
+        out('status').textContent = status;
+      };
+
+      const stop = () => {
+        clearInterval(timer);
+        timer = 0;
+      };
+
+      const restart = (status: string) => {
+        stop();
+        model = new KMeans(clusterPoints, k, seed, seeding);
+        render(status);
+      };
+
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
+        if (!button) return;
+        if (button.dataset.k) {
+          k = Number(button.dataset.k);
+          for (const other of this.querySelectorAll('[data-k]')) other.setAttribute('aria-pressed', String(other === button));
+          restart(`${k} centres. Take a step.`);
+          return;
+        }
+        const act = button.dataset.act;
+        if (act === 'step') {
+          stop();
+          render(model.step());
+        } else if (act === 'run') {
+          stop();
+          timer = window.setInterval(() => {
+            const status = model.step();
+            render(model.converged ? `Converged after ${model.iteration} rounds with a total squared distance of ${fmt(model.inertia(), 1)}. Try another random start and compare.` : status);
+            if (model.converged) stop();
+          }, 380);
+        } else if (act === 'random' || act === 'plus-plus') {
+          seed += 1;
+          seeding = act;
+          restart(
+            act === 'random'
+              ? `${k} centres on ${k} points chosen at random. Some starts lead to a worse answer than others.`
+              : `k-means++: the first centre is random, and each later one is chosen with a bias towards points far from the centres so far.`,
+          );
+        }
+      });
+    }
+  }
+
+  customElements.define('kmeans-demo', KMeansDemo);
+</script>
