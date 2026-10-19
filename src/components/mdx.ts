@@ -84,6 +84,7 @@ import EventLoopDemo from './EventLoopDemo.astro';
 import FloatDemo from './FloatDemo.astro';
 import Frame from './Frame.astro';
 import GateDemo from './GateDemo.astro';
+import GpuDemo from './GpuDemo.astro';
 import GraphDemo from './GraphDemo.astro';
 import GridSearch from './GridSearch.astro';
 import HashPlayground from './HashPlayground.astro';
@@ -201,6 +202,7 @@ export const components = {
   CacheHierarchy,
   CpuDemo,
   GateDemo,
+  GpuDemo,
   Gates,
   Pipeline,
   RegisterDemo,

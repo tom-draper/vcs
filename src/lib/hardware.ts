@@ -202,3 +202,145 @@ export function runCpu(): CpuStep[] {
   }
   return steps;
 }
+
+/* ---------- GPUs ---------- */
+
+export const LANES = 8;
+
+export type DivergenceInput = 'all-even' | 'all-odd' | 'halves' | 'alternating' | 'one-odd';
+
+export const divergenceInputs: Record<DivergenceInput, { name: string; values: number[] }> = {
+  'all-even': { name: 'All even', values: [2, 4, 6, 8, 10, 12, 14, 16] },
+  'all-odd': { name: 'All odd', values: [1, 3, 5, 7, 9, 11, 13, 15] },
+  halves: { name: 'First half even', values: [2, 4, 6, 8, 1, 3, 5, 7] },
+  alternating: { name: 'Alternating', values: [2, 1, 4, 3, 6, 5, 8, 7] },
+  'one-odd': { name: 'One odd', values: [2, 4, 6, 8, 10, 12, 13, 16] },
+};
+
+interface KernelLine {
+  text: string;
+  /** Which lanes run it: every lane, the even ones, or the odd ones. */
+  when: 'all' | 'even' | 'odd';
+}
+
+/** The kernel every lane runs, one line per instruction. */
+export const kernel: KernelLine[] = [
+  { text: 'x = data[i]', when: 'all' },
+  { text: 'if x is even:', when: 'all' },
+  { text: '    y = x / 2', when: 'even' },
+  { text: '    y = y * y', when: 'even' },
+  { text: '    y = y + 1', when: 'even' },
+  { text: 'else:', when: 'all' },
+  { text: '    y = 3 * x', when: 'odd' },
+  { text: '    y = y + 1', when: 'odd' },
+  { text: 'out[i] = y', when: 'all' },
+];
+
+/**
+ * The instructions a warp issues, in order, and which lanes are switched on for
+ * each. A branch side that no lane takes is skipped altogether.
+ */
+export function warpTrace(values: number[]) {
+  const even = values.map((v) => v % 2 === 0);
+  const rows: { line: number; active: boolean[] }[] = [];
+  kernel.forEach((line, i) => {
+    const active = values.map((_, lane) => line.when === 'all' || (line.when === 'even') === even[lane]);
+    if (line.when !== 'all' && !active.some(Boolean)) return;
+    // The `else` line is bookkeeping: only issue it when both sides run.
+    if (line.text === 'else:' && (even.every(Boolean) || !even.some(Boolean))) return;
+    rows.push({ line: i, active });
+  });
+  const used = rows.reduce((sum, row) => sum + row.active.filter(Boolean).length, 0);
+  return { rows, cycles: rows.length, utilisation: used / (rows.length * values.length) };
+}
+
+export function warpSvg(values: number[]): string {
+  const { rows } = warpTrace(values);
+  const cell = 34;
+  const left = 150;
+  const top = 44;
+  const parts: string[] = [`<text class="gpu-code dim" x="8" y="12">lane</text>`, `<text class="gpu-code dim" x="8" y="29">x</text>`];
+  values.forEach((v, lane) => {
+    const x = left + lane * cell + cell / 2;
+    parts.push(`<text class="v-small" x="${x}" y="12">${lane}</text>`, `<text class="gpu-value" x="${x}" y="29">${v}</text>`);
+  });
+  rows.forEach((row, r) => {
+    const y = top + r * (cell - 6);
+    parts.push(`<text class="gpu-code" x="8" y="${y + (cell - 6) / 2}">${kernel[row.line].text.replace(/ /g, '&#160;')}</text>`);
+    row.active.forEach((on, lane) => {
+      const kind = !on ? 'off' : kernel[row.line].when;
+      parts.push(`<rect class="gpu-slot ${kind}" x="${left + lane * cell + 2}" y="${y + 2}" width="${cell - 4}" height="${cell - 10}" rx="4"/>`);
+    });
+  });
+  return parts.join('');
+}
+
+export const warpSize = (values: number[]) => ({ width: 150 + values.length * 34 + 6, height: 44 + warpTrace(values).rows.length * 28 + 4 });
+
+/** Latency hiding: warps alternate compute with slow memory loads, and the scheduler issues from any warp that is ready. */
+export const LOAD_LATENCY = 10;
+const PROGRAM: ('alu' | 'load')[] = ['alu', 'alu', 'load', 'alu', 'alu', 'load', 'alu', 'alu'];
+
+export type SlotState = 'issue' | 'wait' | 'ready' | 'done';
+
+export function latencyTrace(warps: number) {
+  const pc = Array(warps).fill(0);
+  const readyAt = Array(warps).fill(0);
+  const grid: SlotState[][] = Array.from({ length: warps }, () => []);
+  let busy = 0;
+  let cycle = 0;
+  let next = 0;
+  while (pc.some((p) => p < PROGRAM.length) && cycle < 400) {
+    // Pick the next ready warp in round-robin order.
+    let chosen = -1;
+    for (let k = 0; k < warps; k++) {
+      const w = (next + k) % warps;
+      if (pc[w] < PROGRAM.length && readyAt[w] <= cycle) {
+        chosen = w;
+        break;
+      }
+    }
+    for (let w = 0; w < warps; w++) {
+      grid[w].push(w === chosen ? 'issue' : pc[w] >= PROGRAM.length ? 'done' : readyAt[w] > cycle ? 'wait' : 'ready');
+    }
+    if (chosen >= 0) {
+      busy++;
+      readyAt[chosen] = cycle + (PROGRAM[pc[chosen]] === 'load' ? LOAD_LATENCY : 1);
+      pc[chosen]++;
+      next = (chosen + 1) % warps;
+    }
+    cycle++;
+  }
+  return { grid, cycles: cycle, busy, utilisation: busy / Math.max(cycle, 1), work: warps * PROGRAM.length };
+}
+
+export function latencySvg(warps: number): string {
+  const { grid, cycles } = latencyTrace(warps);
+  const w = Math.max(5, Math.min(12, Math.floor(560 / Math.max(cycles, 1))));
+  const parts: string[] = [];
+  grid.forEach((row, i) => {
+    const y = 14 + i * 22;
+    parts.push(`<text class="v-small" x="22" y="${y + 8}">warp ${i + 1}</text>`);
+    row.forEach((state, c) => {
+      if (state === 'done') return;
+      parts.push(`<rect class="gpu-slot ${state}" x="${50 + c * w}" y="${y}" width="${Math.max(1, w - 1)}" height="16"/>`);
+    });
+  });
+  // The core itself: busy whenever any warp issues.
+  const coreY = 14 + grid.length * 22 + 6;
+  parts.push(`<text class="v-small gpu-core" x="22" y="${coreY + 8}">core</text>`);
+  for (let c = 0; c < cycles; c++) {
+    const busy = grid.some((row) => row[c] === 'issue');
+    parts.push(`<rect class="gpu-slot ${busy ? 'issue' : 'idle'}" x="${50 + c * w}" y="${coreY}" width="${Math.max(1, w - 1)}" height="16"/>`);
+  }
+  const base = coreY + 20;
+  parts.push(`<line class="ml-axis" x1="50" y1="${base}" x2="${50 + cycles * w}" y2="${base}"/>`);
+  parts.push(`<text class="v-small" x="${50 + cycles * w}" y="${base + 10}" text-anchor="end">${cycles} cycles</text>`);
+  return parts.join('');
+}
+
+export const latencySize = (warps: number) => {
+  const { cycles } = latencyTrace(warps);
+  const w = Math.max(5, Math.min(12, Math.floor(560 / Math.max(cycles, 1))));
+  return { width: Math.max(320, 50 + cycles * w + 30), height: 14 + warps * 22 + 56 };
+};
