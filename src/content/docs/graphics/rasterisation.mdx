@@ -1,0 +1,133 @@
+---
+description: Rasterisation turns a triangle given by three corners into the set of pixels it covers. It tests each pixel's centre against the triangle's three edges, blends values from the corners across the face, and keeps a depth per pixel so nearer surfaces win.
+difficulty: intermediate
+---
+
+After [transforms](/graphics/transforms/), every vertex of the scene has a position on the screen. A triangle is now three points in pixel coordinates. The screen, though, is a grid of a few million pixels, each of which needs a colour. **Rasterisation** is the step between: given a triangle, find every pixel it covers.
+
+It is the work at the heart of every real-time renderer. A modern game draws millions of triangles a frame, sixty times a second, and the GPU has fixed-function hardware for exactly this job.
+
+## The question for each pixel
+
+A pixel is a small square, but rasterisers treat it as a point: its centre. A pixel belongs to a triangle when its centre is inside the triangle. The whole problem comes down to an inside test that can be run millions of times a frame.
+
+## Edge functions
+
+Take an edge from corner `a` to corner `b`, and a point `p`. The quantity
+
+```
+E(a, b, p) = (b.x − a.x)(p.y − a.y) − (b.y − a.y)(p.x − a.x)
+```
+
+is the 2D cross product of the edge with the line from `a` to `p`. Its sign says which side of the edge `p` lies on: positive on one side, negative on the other, zero on the line itself.
+
+A triangle is the region on the inside of all three of its edges. So a point is inside when the three **edge functions** `E(a, b, p)`, `E(b, c, p)` and `E(c, a, p)` all have the same sign as the triangle's own winding.
+
+<RasterDemo />
+
+Drag the corners. Point at a pixel to read its three weights, which are the edge functions divided by the triangle's area. When all three are zero or more, the centre is inside and the pixel is filled. When one is negative, the readout names the edge it is outside of.
+
+## Which pixels to test
+
+Testing every pixel on the screen for every triangle would be absurd. A rasteriser tests only the pixels inside the triangle's **bounding box**, the smallest rectangle of pixels that contains it. Turn on "Show bounding box" and press "Scan" to watch it work through them in order.
+
+Thin, diagonal triangles waste a lot of tests, since most of their box is empty. Real hardware splits the screen into tiles, say 8×8 pixels, and first tests whole tiles against the edges. A tile entirely outside an edge is skipped, and a tile entirely inside all three is filled without testing its pixels one by one.
+
+The tests are independent, so a GPU runs them in parallel, and the edge functions are linear. Moving one pixel to the right adds a constant to each, so a hardware rasteriser steps across a row with three additions per pixel.
+
+## Pixels on the line
+
+When two triangles share an edge, a pixel centre that falls exactly on the edge has an edge function of zero for both. If both drew it, it would be shaded twice, which shows as a seam where the triangles are semi-transparent. If neither did, there would be a hole.
+
+The **top-left rule** settles it. A pixel exactly on an edge belongs to a triangle only if that edge is a top edge (horizontal, with the triangle below) or a left edge. Every edge is shared by two triangles with opposite orientations, so exactly one of them gets the pixel.
+
+## Barycentric coordinates
+
+The three weights do more than decide coverage. Each one is the area of the small triangle formed by `p` and the opposite edge, divided by the area of the whole triangle. They are the point's **barycentric coordinates**: how much of each corner the point is made of. They always sum to 1.
+
+```
+wA = E(b, c, p) / area
+wB = E(c, a, p) / area
+wC = E(a, b, p) / area
+
+value at p = wA · value at A + wB · value at B + wC · value at C
+```
+
+Every value stored at the corners can be blended across the face this way. Switch the widget to "Blend colours" to see it with a red, a green and a blue corner. A renderer interpolates depth, texture coordinates and surface normals the same way, so a pixel in the middle of a triangle gets a smoothly varying position on the texture and a smoothly turning normal for [shading](/graphics/shading/).
+
+<Aside type="warning" title="Perspective-correct interpolation">
+
+Blending in screen space is only right for flat-on triangles. On a triangle seen at an angle, equal steps across the screen are not equal steps across the surface, because the far part is squeezed. Interpolating texture coordinates directly makes textures appear to bend. The fix is to interpolate each value divided by w, along with 1/w itself, and divide the two at each pixel. Hardware does this automatically.
+
+</Aside>
+
+## Jagged edges
+
+Sampling one point per pixel gives an all-or-nothing answer at the edges, and a slanted edge becomes a staircase. These **jaggies** crawl and shimmer as the triangle moves. It is **aliasing**: sampling a sharp edge too coarsely.
+
+Switch the widget to "4× multisampling". Each pixel now has four sample points, in a rotated pattern so that neither horizontal nor vertical edges line up with them. A pixel is shaded by the share of its samples inside, so edge pixels come out partly covered and the staircase softens.
+
+**MSAA** (multisample anti-aliasing) is the standard hardware version: coverage and depth are tested at every sample, but the expensive shading runs once per pixel. Other approaches blur edges after the fact (**FXAA**) or reuse samples from previous frames (**TAA**).
+
+## Which surface is in front
+
+Triangles arrive in whatever order the program sends them, and many cover the same pixel. The one that should be seen is the nearest.
+
+The **painter's algorithm** sorts whole triangles from far to near and draws them in that order, so near ones paint over far ones. It fails when triangles cross each other, or overlap in a cycle where each is in front of the next, because no order of whole triangles is right.
+
+The **depth buffer**, or **z-buffer**, solves it per pixel. Alongside the colour of each pixel, store the depth of the surface drawn there, starting at "infinitely far". When a triangle covers a pixel, interpolate its depth there with the barycentric weights. If it is nearer than the stored depth, write the colour and the new depth. Otherwise, discard it.
+
+Switch the widget to "Two triangles, depth test". The two triangles pass through each other, and each pixel shows whichever is nearer at that pixel. No ordering of the two triangles could draw that.
+
+## Implementation
+
+```python
+def edge(a, b, p):
+    return (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+
+def rasterise(tri, colours, depths, width, height, frame, zbuf):
+    a, b, c = tri
+    area = edge(a, b, c)
+    if area == 0:
+        return                                  # a sliver with no inside
+    xs, ys = [p[0] for p in tri], [p[1] for p in tri]
+    for y in range(max(0, int(min(ys))), min(height, int(max(ys)) + 1)):
+        for x in range(max(0, int(min(xs))), min(width, int(max(xs)) + 1)):
+            p = (x + 0.5, y + 0.5)              # the pixel centre
+            w = (edge(b, c, p) / area, edge(c, a, p) / area, edge(a, b, p) / area)
+            if min(w) < 0:
+                continue                        # outside one of the edges
+            z = sum(wi * di for wi, di in zip(w, depths))
+            if z < zbuf[y][x]:                  # nearer than what is there
+                zbuf[y][x] = z
+                frame[y][x] = tuple(sum(wi * col[k] for wi, col in zip(w, colours)) for k in range(3))
+```
+
+## Costs
+
+<Ops items={[
+  ['Inside test', 'O(1)', 'three edge functions, or three additions when stepping'],
+  ['One triangle', 'O(box area)', 'pixels in its bounding box'],
+  ['Depth test', 'O(1)', 'one read and maybe one write per pixel'],
+  ['Depth buffer', 'O(pixels)', 'typically 24 or 32 bits per pixel'],
+  ['n× MSAA', 'n× coverage and depth', 'shading still once per pixel'],
+]} />
+
+## Where it is used
+
+**Every GPU.** Vulkan, Direct3D, Metal and OpenGL all draw by rasterising triangles. The rasteriser itself is fixed hardware; what programs control is the vertex shader before it and the pixel shader after it.
+
+**Fonts and 2D graphics.** Text, SVG and the canvas rasterise curved outlines, usually with a coverage value per pixel rather than a yes or no, which is why text edges are smooth.
+
+**Shadow maps.** A common way to draw shadows is to rasterise the scene a second time from the light's point of view, keeping only the depth buffer. A point is in shadow if it is farther from the light than the depth stored there.
+
+**Hybrid renderers.** Even engines that use [ray tracing](/graphics/ray-tracing/) for reflections and lighting usually rasterise first, to find what each pixel sees directly.
+
+## Key takeaways
+
+- Rasterisation finds the pixels a triangle covers by testing each pixel's centre.
+- Three edge functions decide the inside test. Their signs say which side of each edge the point is on.
+- Only pixels in the bounding box are tested. The tests are independent, so they run in parallel.
+- The same edge functions, divided by the area, are barycentric weights for blending depth, colour, texture coordinates and normals.
+- One sample per pixel makes jagged edges. Multisampling tests several points per pixel and shades once.
+- A depth buffer keeps the nearest surface at each pixel, which works whatever order triangles arrive in.
