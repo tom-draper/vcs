@@ -1,0 +1,141 @@
+---
+description: Gradient descent finds the parameters of a model by starting anywhere and repeatedly stepping downhill on the loss. It needs nothing but the slope at the current point, which is why it trains everything from straight lines to the largest neural networks.
+difficulty: intermediate
+---
+
+[Linear regression](/machine-learning/linear-regression/) has a formula for the best line. Most models do not. A neural network with a billion weights has no equation you can solve for the answer. You need a method that only asks: from where I stand now, which way is better?
+
+Imagine standing on a hillside in thick fog, trying to reach the bottom of the valley. You cannot see the valley. But you can feel which way the ground slopes under your feet. Take a step downhill, feel again, and repeat. That is **gradient descent**.
+
+## The loss as a landscape
+
+Fix the data, and the loss depends only on the parameters. For a straight line there are two of them, the slope `w` and the intercept `b`, so every possible line is a point on a flat map, and the loss is a height above that point.
+
+For squared error this landscape is a smooth bowl. The best line sits at the bottom.
+
+<DescentDemo />
+
+The darker the shading, the lower the loss. The cross marks the best line, which here we could also find by formula. Pretend we cannot, and walk there.
+
+## Which way is down
+
+The **gradient** of the loss is the list of its slopes, one for each parameter: how fast the loss rises as you nudge `w`, and how fast as you nudge `b`. Together they point in the direction of steepest climb. So the steepest way down is the opposite direction.
+
+For mean squared error, calculus gives the two slopes directly.
+
+```
+∂loss/∂w = average of 2 × error × x
+∂loss/∂b = average of 2 × error
+```
+
+These have a plain meaning. If the line's predictions are mostly too high (positive errors), increasing `b` would make things worse, so `∂loss/∂b` is positive and the update will lower `b`.
+
+## The update
+
+Each step moves every parameter a little way against its slope.
+
+```
+w ← w − η × ∂loss/∂w
+b ← b − η × ∂loss/∂b
+```
+
+The step size `η` (eta) is the **learning rate**. The step is also proportional to the slope, so the walk moves quickly where the ground is steep and slows down as it nears the flat bottom, without being told to.
+
+<Steps>
+<Step title="Start anywhere">
+
+The widget starts at w = −0.5, b = −2, a bad line sloping the wrong way. The loss is 13.2.
+
+</Step>
+<Step title="Measure the slope">
+
+Every prediction is too low, so the errors are negative. Both slopes come out negative, saying that raising w and b would lower the loss.
+
+</Step>
+<Step title="Step and repeat">
+
+With η = 0.1, one step moves the line to w = 0.15, b = −1.48, and the loss falls to 7.3. After 30 steps it is within a whisker of the best line.
+
+</Step>
+</Steps>
+
+## Choosing the learning rate
+
+The learning rate is the one setting you have to pick, and the widget shows why it matters.
+
+| Learning rate | What happens |
+| --- | --- |
+| 0.02 | Every step is safe but tiny. After 30 steps it is still far from the bottom. |
+| 0.1 | A smooth, direct path to the minimum. |
+| 0.5 | Each step overshoots and lands on the far side of the valley, but by less each time, so it zigzags in. |
+| 0.7 | Each step overshoots by more than it started. The loss grows without limit and the walk leaves the map. |
+
+Too small wastes time. Too large diverges. In between there is a range that works, and in practice people try a few values spaced by factors of three or ten and keep the best. Many training runs also start with a larger rate and **decay** it over time, so the early steps cover ground and the later ones settle precisely.
+
+<Aside title="Why the cut-off is sharp">
+
+Near the bottom, a bowl looks like a parabola. On a parabola loss = c·x², the update is x ← x − η·2c·x = (1 − 2cη)·x. Each step multiplies the distance from the bottom by (1 − 2cη). If that factor is between −1 and 1 the walk shrinks towards the bottom. If it is below −1, every step flips sides and grows. So the walk diverges once η exceeds 1/c, the inverse of the curvature.
+
+</Aside>
+
+## Stochastic gradient descent
+
+Computing the exact gradient means visiting every example, which for a million images is slow just to take one step. **Stochastic gradient descent** (SGD) instead estimates the gradient from a small random **mini-batch** of examples, typically 32 to a few thousand, and steps on that.
+
+Each estimate is noisy, so the path wobbles. But each step is thousands of times cheaper, so it makes far more progress per second. The noise even helps a little: it can jostle the walk out of shallow dips that would trap an exact method.
+
+One pass through the whole training set is an **epoch**. Training a large model is many epochs of mini-batch steps.
+
+## Valleys, plateaus and local minima
+
+The bowl here has one bottom, because the loss of a linear model with squared error is **convex**. Any path downhill leads to the same answer.
+
+Neural network losses are not convex. They have many dips, long flat plateaus and narrow ravines. Gradient descent only promises to find a point where the ground is flat, which might be a **local minimum** rather than the lowest point anywhere. In practice, for large networks this matters less than once feared, since most local minima turn out to be nearly as good as each other. Plateaus and ravines are the bigger problem.
+
+Two refinements handle them, and almost every modern training run uses both.
+
+**Momentum** keeps a running average of recent steps and moves along it. In a ravine the side-to-side components cancel and the steady downhill part builds up speed, like a ball rolling rather than a walker feeling each step.
+
+**Adaptive rates** give each parameter its own step size, larger for parameters whose gradients are consistently small. **Adam**, the most widely used optimiser, combines this with momentum.
+
+## Costs
+
+<Ops items={[
+  ['One full-batch step', 'O(nd)', 'n examples, d parameters'],
+  ['One mini-batch step', 'O(md)', 'm examples in the batch'],
+  ['Memory, plain SGD', 'O(d)', 'the parameters and their gradient'],
+  ['Memory, Adam', 'O(3d)', 'adds two running averages'],
+]} />
+
+## Implementation
+
+```python
+def fit_line_by_descent(xs, ys, rate=0.1, steps=100):
+    w, b = 0.0, 0.0
+    n = len(xs)
+    for _ in range(steps):
+        errors = [w * x + b - y for x, y in zip(xs, ys)]
+        dw = sum(2 * e * x for e, x in zip(errors, xs)) / n
+        db = sum(2 * e for e in errors) / n
+        w -= rate * dw
+        b -= rate * db
+    return w, b
+```
+
+Swap the two gradient lines for those of another model and loss, and the loop is unchanged. Finding those gradients automatically, for any model, is the job of [backpropagation](/machine-learning/backpropagation/).
+
+## Where it is used
+
+**Training neural networks.** Every large language model, image classifier and speech recogniser is trained by some form of mini-batch gradient descent, usually Adam.
+
+**Large linear models.** When there are millions of features, solving the normal equations directly is too expensive, and gradient descent is used instead. Ad-click prediction and spam filtering work this way.
+
+**Beyond machine learning.** The same idea fits curves in science, tunes controllers in engineering and finds equilibrium shapes in physics simulations, wherever a smooth quantity has to be minimised.
+
+## Key takeaways
+
+- Gradient descent minimises a loss by repeatedly stepping against its gradient, the direction of steepest increase.
+- It needs only the slope at the current point, so it works when there is no formula for the answer.
+- The learning rate sets the step size. Too small is slow. Too large overshoots and can diverge.
+- Stochastic gradient descent estimates the gradient from small random batches, trading accuracy per step for far more steps.
+- On convex losses every path leads to the same minimum. On neural network losses it finds a good flat point, helped by momentum and adaptive rates.
