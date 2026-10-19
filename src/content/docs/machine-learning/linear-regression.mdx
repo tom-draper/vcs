@@ -1,0 +1,144 @@
+---
+description: Linear regression fits a straight line to data by choosing the slope and intercept that make the squared errors as small as possible. It is the simplest model that learns from examples, and the template for almost every model after it.
+difficulty: beginner
+---
+
+Nine students record how many hours they practised and what they scored on a test. A new student says they will practise for six and a half hours. What score should you expect?
+
+Nobody wrote down a rule connecting hours to scores. But the data suggests one: more practice, higher score, at a fairly steady rate. If you can draw the straight line that runs through the middle of the points, you can read the prediction straight off it.
+
+That is **linear regression**, and it is the first and simplest example of **machine learning**: a program whose behaviour is not written by hand but fitted to examples.
+
+## The model
+
+A straight line has two numbers that pin it down.
+
+```
+prediction = w × x + b
+```
+
+The **slope** `w` says how much the prediction rises for each extra unit of `x`. The **intercept** `b` is the prediction when `x` is zero. In machine learning these adjustable numbers are called the **parameters** or **weights** of the model, and **learning** means choosing them.
+
+Every choice of `w` and `b` is a different line, and so a different model. The question is how to say which line is best.
+
+## Measuring a line
+
+For each example, the **error** (or **residual**) is the gap between what the line predicts and what really happened.
+
+```
+error = (w × x + b) − y
+```
+
+Some errors are positive and some negative, so adding them up would let them cancel. The standard fix is to square each one and take the average. This is the **mean squared error**.
+
+```
+MSE = average of (w × x + b − y)²   over every example
+```
+
+A number that scores how bad a model is on the data is called a **loss function**. Learning is now a precise problem: find the `w` and `b` with the smallest loss.
+
+Squaring has a pleasing picture. Draw each error as a vertical line from the point to the line, then draw a square on it. The squared error is the area of that square, and the best line is the one with the least total area.
+
+<RegressionDemo />
+
+Try to make the squares as small as you can with the sliders, then snap to the answer and see how close you came.
+
+## Solving it exactly
+
+For a straight line and squared error, nobody has to search. Calculus gives the answer in one go. Set the slope of the loss to zero in both directions and solve, and the best line comes out as
+
+```
+w = sum of (x − x̄)(y − ȳ)  /  sum of (x − x̄)²
+b = ȳ − w × x̄
+```
+
+where `x̄` and `ȳ` are the averages of the x and y values. The slope is how much x and y vary together, divided by how much x varies on its own. The line always passes through the point of averages, (`x̄`, `ȳ`).
+
+For the practice data that gives roughly `score = 0.71 × hours + 1.36`, so six and a half hours predicts a score of about 6.
+
+<Steps>
+<Step title="Average the inputs and outputs">
+
+The hours 1 to 9 average x̄ = 5. The scores average ȳ = 4.91.
+
+</Step>
+<Step title="Measure how they move together">
+
+For each student, multiply how far their hours are from 5 by how far their score is from 4.91, and add these up: 42.6. Then add up the squared distances of the hours from 5: 60.
+
+</Step>
+<Step title="Divide, then fix the intercept">
+
+w = 42.6 / 60 = 0.71. Then b = 4.91 − 0.71 × 5 = 1.36.
+
+</Step>
+</Steps>
+
+## More than one input
+
+Real predictions use more than one feature. A house price might depend on floor area, number of bedrooms and distance from the station. The model becomes a weighted sum, one weight per feature, plus the intercept.
+
+```
+prediction = w₁x₁ + w₂x₂ + w₃x₃ + b
+```
+
+The same idea still works. Stack the examples into a matrix X and the answers into a vector y, and the best weights solve the **normal equations**, XᵀX w = Xᵀy. With many features this is a linear system to solve rather than a formula to apply, but it is still one calculation, not a search.
+
+"Linear" means linear in the weights, not necessarily in the inputs. Add x² as a feature and the same machinery fits a parabola, which is where [overfitting](/machine-learning/overfitting-and-regularisation/) comes from.
+
+## Outliers
+
+Squaring punishes big errors far more than small ones. An error of 4 costs sixteen times as much as an error of 1. That is usually what you want, since being badly wrong is worse than being slightly wrong, but it has a cost.
+
+Press "Add an outlier" in the widget. One wrong measurement, a student who practised for eight and a half hours and scored 1, drags the whole line towards it. If your data might contain mistakes, a loss that grows more gently, such as the absolute error, gives a more robust fit.
+
+## Correlation is not a cause
+
+A line fitted to data tells you the two quantities move together. It does not tell you why. Ice cream sales and drownings both rise in summer, and a regression of one on the other fits well, but banning ice cream would save nobody. Regression describes the data it was given. Deciding what causes what needs an experiment or a careful argument.
+
+## Costs
+
+<Ops items={[
+  ['Fit a line to n points', 'O(n)', 'two passes'],
+  ['Fit d features', 'O(nd² + d³)', 'normal equations'],
+  ['Predict', 'O(d)', 'one weighted sum'],
+  ['Memory for the model', 'O(d)', 'one weight per feature'],
+]} />
+
+## Implementation
+
+```python
+def fit_line(xs, ys):
+    mx = sum(xs) / len(xs)
+    my = sum(ys) / len(ys)
+    sxy = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    sxx = sum((x - mx) ** 2 for x in xs)
+    w = sxy / sxx
+    return w, my - w * mx
+
+hours  = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+scores = [2.1, 2.9, 3.2, 4.6, 4.4, 5.9, 6.1, 7.4, 7.6]
+w, b = fit_line(hours, scores)      # 0.71, 1.36
+w * 6.5 + b                         # 5.98
+```
+
+For many features, `numpy.linalg.lstsq(X, y)` solves the least-squares problem in a numerically stable way.
+
+## Where it is used
+
+**Science and economics.** Fitting a trend to measurements, and reading off how strongly one quantity depends on another, is the oldest use. Gauss and Legendre invented least squares around 1800 to predict the orbits of planets and comets.
+
+**Forecasting.** Demand for electricity against temperature, sales against advertising spend, delivery time against distance. A linear model is often the baseline that fancier models have to beat.
+
+**Inside larger models.** The last layer of most [neural networks](/machine-learning/neural-networks/) is a linear model applied to features the earlier layers learned.
+
+**A first model.** It is fast, it has no settings to tune, and each weight has a plain meaning, so it is the natural first thing to try on a new problem.
+
+## Key takeaways
+
+- A model has parameters. Learning means choosing them to fit examples.
+- A loss function scores a model on the data. Mean squared error averages the squared gaps between predictions and answers.
+- For a straight line and squared error, the best parameters have an exact formula. The line passes through the point of averages.
+- Squaring makes large errors expensive, so outliers can drag the line a long way.
+- The same method handles many inputs, and curves too, as long as the prediction is a weighted sum.
+- A good fit shows that quantities move together, not that one causes the other.
