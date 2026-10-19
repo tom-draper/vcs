@@ -39,7 +39,7 @@ A few experiments.
 
 ## Leader election
 
-A leader sends **heartbeats** to every follower at short intervals. A follower that hears nothing for a while, its **election timeout**, assumes there is no leader and starts an election.
+A leader sends **heartbeats** to every follower at short intervals. A follower that hears nothing for a while, its **election timeout**, assumes there is no leader and starts an election. (The wider problem, and what goes wrong without majorities and terms, is on the [leader election](/distributed-systems/leader-election/) page.)
 
 1. It adds one to its term and becomes a candidate.
 2. It votes for itself and asks every other node for a vote.
