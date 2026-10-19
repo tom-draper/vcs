@@ -223,6 +223,7 @@ const outline: PartDef[] = [
           'Pipelining',
           'Branch Prediction',
           'SIMD',
+          'GPUs',
         ],
       },
       {
@@ -320,6 +321,7 @@ const outline: PartDef[] = [
         pages: [
           'The Network Layer Model',
           'IP Addressing',
+          'Routing',
           'TCP',
           'UDP',
           'DNS',
@@ -377,6 +379,7 @@ const outline: PartDef[] = [
           'Partitioning',
           'Consistent Hashing',
           'Consensus',
+          'Leader Election',
           'Raft',
           'Two-Phase Commit',
           'CRDTs',
@@ -433,12 +436,13 @@ const outline: PartDef[] = [
           'Linear Regression',
           'Gradient Descent',
           'Overfitting and Regularisation',
+          'Decision Trees',
           'k-Means Clustering',
         ],
       },
       {
         title: 'Neural Networks',
-        pages: ['Neural Networks', 'Backpropagation'],
+        pages: ['Neural Networks', 'Backpropagation', 'Attention and Transformers'],
       },
     ],
   },
