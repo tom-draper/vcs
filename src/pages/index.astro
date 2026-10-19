@@ -24,7 +24,11 @@ const cubePage = 'information/error-correcting-codes';
           {written.has(cubePage) && <a href={url(cubePage)}>Explore the code cube</a>}
         </div>
         <p class="progress">
-          {written.size} of {allPages.length} pages written so far. Greyed-out titles are planned.
+          {
+            written.size < allPages.length
+              ? `${written.size} of ${allPages.length} pages written so far. Greyed-out titles are planned.`
+              : `${allPages.length} pages across ${parts.length} parts.`
+          }
         </p>
       </div>
       <figure class="hero-figure">
