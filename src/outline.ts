@@ -457,6 +457,17 @@ const outline: PartDef[] = [
       },
     ],
   },
+  {
+    title: 'Computer Graphics',
+    slug: 'graphics',
+    summary: 'Turning a description of a 3D scene into the colour of every pixel.',
+    chapters: [
+      {
+        title: 'Rendering',
+        pages: ['Transforms', 'Rasterisation', 'Shading', 'Ray Tracing'],
+      },
+    ],
+  },
 ];
 
 export interface Page {
