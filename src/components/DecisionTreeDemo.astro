@@ -1,0 +1,92 @@
+---
+// A decision tree grown on two classes of points. Each split cuts a region in
+// two with a straight line, chosen to reduce entropy (or Gini impurity) the
+// most. A depth slider shows the tree fitting, then overfitting, the data.
+import { accuracy, growTree, leaves, treeOutline, treePlot, treeSvg, treeTest, treeTrain } from '../lib/learning';
+
+const depth = 2;
+const root = growTree(treeTrain, depth, 'entropy');
+const pct = (x: number) => `${Math.round(x * 100)}%`;
+---
+
+<decision-tree-demo class="playground decision-tree-demo">
+  <div class="viz-scroll">
+    <svg class="viz-svg chart ml-chart" viewBox={`0 0 ${treePlot.width} ${treePlot.height}`} role="img" aria-label="Points of two classes, with the plane divided into rectangles by the tree's questions. Each rectangle is shaded by the class the tree predicts there." set:html={treeSvg(root, false)} />
+  </div>
+  <div class="sliders">
+    <label><span>Maximum depth: <b data-out="depth">{depth}</b></span><input type="range" name="depth" min="0" max="8" step="1" value={depth} /></label>
+  </div>
+  <p class="tries">
+    Measure:
+    <button type="button" data-kind="entropy" aria-pressed="true">Entropy</button>
+    <button type="button" data-kind="gini" aria-pressed="false">Gini impurity</button>
+    <button type="button" data-act="test" aria-pressed="false">Show test points</button>
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Leaves</dt><dd data-out="leaves">{leaves(root).length}</dd></div>
+    <div><dt>Training accuracy</dt><dd data-out="train">{pct(accuracy(root, treeTrain))}</dd></div>
+    <div><dt>Test accuracy</dt><dd data-out="test">{pct(accuracy(root, treeTest))}</dd></div>
+  </dl>
+  <div class="dt-outline" data-out="tree" set:html={treeOutline(root, 'entropy')} />
+  <p class="hint" data-out="status" aria-live="polite">Two questions already capture most of the pattern. Slide the depth up and watch the training accuracy climb, then check the test points.</p>
+</decision-tree-demo>
+
+<script>
+  import { accuracy, growTree, leaves, treeOutline, treeSvg, treeTest, treeTrain, type Impurity } from '../lib/learning';
+
+  class DecisionTreeDemo extends HTMLElement {
+    connectedCallback() {
+      let depth = 2;
+      let kind: Impurity = 'entropy';
+      let showTest = false;
+      const svg = this.querySelector('svg')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const pct = (x: number) => `${Math.round(x * 100)}%`;
+      const bestTest = Math.max(...Array.from({ length: 9 }, (_, d) => accuracy(growTree(treeTrain, d, 'entropy'), treeTest)));
+
+      const render = () => {
+        const root = growTree(treeTrain, depth, kind);
+        svg.innerHTML = treeSvg(root, showTest);
+        const train = accuracy(root, treeTrain);
+        const test = accuracy(root, treeTest);
+        out('depth').textContent = String(depth);
+        out('leaves').textContent = String(leaves(root).length);
+        out('train').textContent = pct(train);
+        out('test').textContent = pct(test);
+        out('tree').innerHTML = treeOutline(root, kind);
+        out('status').textContent =
+          depth === 0
+            ? 'No questions: the tree predicts the majority class everywhere.'
+            : train === 1
+              ? `Every training point is classified correctly, including the noisy ones, by ${leaves(root).length} tiny regions. Test accuracy is ${pct(test)}: those regions were fitted to noise.`
+              : test >= bestTest - 0.005
+                ? `${pct(test)} on unseen points, as good as this tree gets. The regions match the real pattern, and the misclassified training points are mostly noise.`
+                : depth >= 5
+                  ? `Training accuracy is ${pct(train)} and rising, but test accuracy is falling. The new splits chase individual points.`
+                  : `Each split is the single cut that lowers impurity the most. ${pct(train)} right on the training points, ${pct(test)} on fresh ones.`;
+      };
+
+      this.addEventListener('input', (event) => {
+        const input = event.target as HTMLInputElement;
+        if (input.name !== 'depth') return;
+        depth = Number(input.value);
+        render();
+      });
+
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
+        if (!button) return;
+        if (button.dataset.kind) {
+          kind = button.dataset.kind as Impurity;
+          this.querySelectorAll('[data-kind]').forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+        } else if (button.dataset.act === 'test') {
+          showTest = !showTest;
+          button.setAttribute('aria-pressed', String(showTest));
+        }
+        render();
+      });
+    }
+  }
+
+  customElements.define('decision-tree-demo', DecisionTreeDemo);
+</script>

@@ -25,6 +25,7 @@ import RegressionDemo from './RegressionDemo.astro';
 import DescentDemo from './DescentDemo.astro';
 import OverfitDemo from './OverfitDemo.astro';
 import KMeansDemo from './KMeansDemo.astro';
+import DecisionTreeDemo from './DecisionTreeDemo.astro';
 import NetworkDemo from './NetworkDemo.astro';
 import BackpropDemo from './BackpropDemo.astro';
 import CapDemo from './CapDemo.astro';
@@ -146,6 +147,7 @@ export const components = {
   DescentDemo,
   OverfitDemo,
   KMeansDemo,
+  DecisionTreeDemo,
   NetworkDemo,
   BackpropDemo,
   CapDemo,
