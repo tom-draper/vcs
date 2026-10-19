@@ -1,0 +1,147 @@
+---
+description: Attention lets every word in a sequence look at every other word and pull in whatever information it needs, weighted by relevance. Transformers stack layers of attention and small neural networks, and because every position is processed at once they train fast on huge amounts of text. They are the architecture behind large language models.
+difficulty: advanced
+---
+
+Read this sentence:
+
+> The animal didn't cross the street because it was too tired.
+
+What does "it" refer to? The animal, obviously. Change one word, "because it was too wide", and "it" is now the street. The meaning of a word depends on other words, sometimes far away, and which ones matter depends on the sentence.
+
+A [neural network](/machine-learning/neural-networks/) that reads text needs a way to do this: for each word, find the other words that are relevant to it, and combine their information. **Attention** is that mechanism. A **transformer** is a network built mostly out of it.
+
+## Words as vectors
+
+Networks work on numbers, so text is first split into **tokens** (words or pieces of words), and each token is looked up in a table to get an **embedding**, a vector of a few hundred to a few thousand numbers. The table is learned, and tokens used in similar ways end up with similar vectors.
+
+An embedding on its own has no context. "it" gets the same starting vector in every sentence. Attention's job is to update each token's vector with information from the others, so that after a few layers the vector for "it" in the sentence above carries something like "the tired animal".
+
+## Queries, keys and values
+
+Attention borrows its terms from looking things up in a [hash table](/data-structures/hash-tables/), except that every lookup matches everything a little.
+
+Each token's vector is multiplied by three learned matrices to produce three new vectors:
+
+- a **query**, q: what this token is looking for,
+- a **key**, k: what this token offers to others,
+- a **value**, v: the information it hands over if chosen.
+
+For one token, compare its query with the key of every token, including itself, using a dot product. A large dot product means the key matches what the query wants. Divide each score by √d, where d is the length of the vectors, then turn the scores into weights that are positive and sum to 1 with a **softmax**:
+
+```
+score(i, j)  = q_i · k_j / √d
+weight(i, j) = exp(score(i, j)) / Σ_j' exp(score(i, j'))
+output_i     = Σ_j weight(i, j) · v_j
+```
+
+The output for token i is a weighted average of every token's value, mostly made of the values whose keys best matched its query.
+
+<AttentionDemo />
+
+This is a single attention head with weights set by hand, so the features have names. Each row is a token's query, each column a token's key, and the shading is the weight. Click the row for "it": most of its weight lands on "animal". Switch the last word to "wide" and it moves to "street".
+
+In a real model nobody chooses the features. The query, key and value matrices are learned by [backpropagation](/machine-learning/backpropagation/), the vectors have hundreds of unnamed dimensions, and the patterns a head learns are rarely this tidy. But the arithmetic is exactly this.
+
+## Why divide by √d?
+
+A dot product of two random vectors of length d has a spread that grows like √d. With d = 512, raw scores are large, and the softmax of large scores is almost all-or-nothing: one weight near 1, the rest near 0. In that regime the softmax is flat, its gradients vanish, and training stalls. Dividing by √d keeps scores at a sensible size whatever d is. Turn the scaling off in the widget, even with only seven dimensions, and the weights sharpen noticeably.
+
+## Matrices all the way down
+
+Written for one token at a time, attention looks like a loop. It is really three matrix products. Stack the n token vectors as the rows of a matrix X:
+
+```
+Q = X Wq      K = X Wk      V = X Wv
+Attention(Q, K, V) = softmax(Q Kᵀ / √d) V
+```
+
+`Q Kᵀ` is the n × n grid of every score, the grid in the widget. Every entry can be computed at once, which is exactly the kind of work [GPUs](/architecture/gpus/) do best.
+
+## Multiple heads
+
+One head computes one pattern of attention. A word might need several at once: its grammatical subject, the noun a pronoun refers to, the word just before it. **Multi-head attention** runs several heads side by side, typically 8 to 128, each with its own smaller query, key and value matrices, and concatenates their outputs. Studies of trained models find heads that track the previous token, heads that match brackets, and heads that copy a name seen earlier.
+
+## The transformer block
+
+A transformer is a stack of identical blocks, often dozens deep. Each block has two parts:
+
+1. **Attention**, where tokens exchange information.
+2. A **feed-forward network**, a small two-layer network applied to each token separately, where each token processes what it gathered.
+
+Each part is wrapped in a **residual connection**, which adds the part's output to its input instead of replacing it, and a **layer normalisation**, which keeps the numbers at a steady scale. Residual connections let gradients flow straight through dozens of layers, so very deep stacks still train.
+
+## Where is everything?
+
+Attention as described treats the input as a set. Shuffle the words and every token gets the same output, just in a different order. Word order matters, so position must be added. The original transformer added a fixed pattern of sines and cosines to each embedding. Many current models use **rotary position embeddings**, which rotate the query and key vectors by an angle that depends on position, so the score between two tokens depends on how far apart they are.
+
+## Encoders and decoders
+
+**Encoders**, such as BERT, let every token attend to every other, in both directions. They are used to understand text: classify it, search it, tag it.
+
+**Decoders**, such as the GPT family and most chat models, generate text one token at a time, and a token must not peek at words that have not been written yet. A **causal mask** sets the score for every later position to minus infinity before the softmax, so its weight is zero. Turn on the mask in the widget: the upper triangle is blanked out, and "it" can no longer see "tired", so it splits its attention between the animal and the street. In a decoder, that ambiguity is resolved later, by the tokens that come after "it".
+
+## Generating text
+
+A decoder is trained on a huge amount of text to predict the next token at every position at once. The mask makes this possible: position 5 only sees positions 1 to 5, so predicting token 6 from it is a fair test, and every position in every training sequence is a training example. The loss is the [cross-entropy](/information/entropy/) of the predicted distribution against the token that actually came next.
+
+To generate, give it a prompt, take the predicted distribution for the next token, pick one (the most likely, or a random choice weighted by probability), append it, and repeat. Each step only adds one new row of attention, so models keep the keys and values of earlier tokens in a **KV cache** instead of recomputing them.
+
+## Why transformers won
+
+Before transformers, sequence models were **recurrent networks**, which read one token at a time and carried a single state vector forward. Two things held them back. Training was sequential: token 100 could not be processed until token 99 was. And information from far back had to survive being squeezed through the state at every step in between.
+
+Attention fixes both. Every position is computed at once during training, and any token can look directly at any other, however far back. Those properties let models scale to trillions of training tokens and hundreds of billions of weights, and scaling, it turned out, keeps making them better.
+
+## Implementation
+
+```python
+import numpy as np
+
+def softmax(x):
+    e = np.exp(x - x.max(axis=-1, keepdims=True))
+    return e / e.sum(axis=-1, keepdims=True)
+
+def attention(X, Wq, Wk, Wv, causal=False):
+    Q, K, V = X @ Wq, X @ Wk, X @ Wv           # n × d each
+    scores = Q @ K.T / np.sqrt(Q.shape[-1])    # n × n
+    if causal:
+        n = len(X)
+        scores[np.triu_indices(n, k=1)] = -np.inf   # no peeking ahead
+    return softmax(scores) @ V                 # n × d
+
+def transformer_block(X, p):
+    heads = [attention(X, *h, causal=True) for h in p["heads"]]
+    X = layer_norm(X + np.concatenate(heads, axis=-1) @ p["Wo"])
+    hidden = np.maximum(0, X @ p["W1"] + p["b1"])          # ReLU
+    return layer_norm(X + hidden @ p["W2"] + p["b2"])
+```
+
+## Costs
+
+<Ops items={[
+  ['Attention scores', 'O(n² · d)', 'n tokens, every pair compared'],
+  ['Attention memory', 'O(n²)', 'per head, unless computed in tiles'],
+  ['Feed-forward layer', 'O(n · d²)', 'usually the larger share for short inputs'],
+  ['Generating one token', 'O(n · d) per layer', 'with a KV cache'],
+  ['KV cache', 'O(n · d · layers)', 'grows with the context'],
+]} />
+
+The n² term is why context length is expensive. Doubling the length of the input quadruples the attention work. Techniques such as **FlashAttention**, which computes the softmax in tiles that fit in fast on-chip memory, and various sparse and linear approximations, exist to push that limit back.
+
+## Where it is used
+
+**Language models.** Chat assistants, code completion, translation and search are built on decoder transformers trained on large parts of the public internet.
+
+**Images.** **Vision transformers** cut an image into patches, treat each patch as a token, and attend between them. Image generators use attention to connect text prompts to regions of the picture.
+
+**Speech, proteins and more.** Speech recognition, protein structure prediction (AlphaFold), weather forecasting and recommendation systems all use transformer layers on their own kinds of sequence.
+
+## Key takeaways
+
+- Attention lets each token build its new representation from a weighted average of every token's value.
+- The weights come from matching each token's query against every token's key, scaled by √d and passed through a softmax.
+- The whole operation is a few matrix products, computed for all tokens at once.
+- A transformer stacks blocks of multi-head attention and per-token feed-forward networks, with residual connections and normalisation.
+- Decoders use a causal mask so each token sees only what came before, and are trained to predict the next token.
+- Attention costs O(n²) in the length of the input, which is what limits context length.
