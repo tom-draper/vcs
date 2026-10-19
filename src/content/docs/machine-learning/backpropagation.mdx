@@ -1,0 +1,152 @@
+---
+description: Backpropagation computes the gradient of a network's loss with respect to every weight in one backward sweep, by applying the chain rule node by node. It costs only a small multiple of running the network forwards, and it is what makes training large networks possible.
+difficulty: advanced
+---
+
+[Gradient descent](/machine-learning/gradient-descent/) needs the gradient of the loss: for every weight, how much the loss would change if that weight were nudged. A [neural network](/machine-learning/neural-networks/) may have billions of weights.
+
+The obvious way to find one gradient is to nudge the weight, run the network again, and see how much the loss moved. That costs one full run of the network per weight, so a billion runs for one step of training. Hopeless.
+
+**Backpropagation** finds every gradient at once, for about the cost of running the network three times. It is not a special trick for neural networks. It is the chain rule from calculus, applied in a clever order.
+
+## A computation as a graph
+
+Break any calculation into small operations, each taking a few inputs and producing one output, and draw an arrow from each value to every operation that uses it. The result is a **computational graph**.
+
+Here is one neuron with two inputs, a sigmoid and a squared-error loss. It computes
+
+```
+L = (σ(w₁x₁ + w₂x₂ + b) − t)²
+```
+
+where `t` is the target, the answer it should have given.
+
+<BackpropDemo />
+
+The weights `w₁`, `w₂` and `b`, with dashed borders, are what training can change. The inputs and the target are fixed by the example.
+
+## The forward pass
+
+Step forward through the first five steps. Each node computes its value from its inputs, working left to right: two products, a sum, the sigmoid and finally the loss.
+
+With x₁ = 2, x₂ = −1, w₁ = 0.5, w₂ = 1 and b = 0, the sum is 0, the sigmoid says 0.5, and since the target is 1, the loss is (0.5 − 1)² = 0.25.
+
+Every value computed on the way is kept. The backward pass needs them.
+
+## The chain rule
+
+How does the loss depend on w₁? Not directly. w₁ changes the product, which changes the sum, which changes the sigmoid, which changes the loss. The **chain rule** says that the effects multiply along the way:
+
+```
+∂L/∂w₁ = ∂L/∂a × ∂a/∂s × ∂s/∂m₁ × ∂m₁/∂w₁
+```
+
+Each factor is a **local** slope: how one node's output responds to one of its inputs. A node only needs to know its own operation to work out its local slopes.
+
+| Node | Local slope | Here |
+| --- | --- | --- |
+| (a − t)² | 2(a − t) | 2 × (0.5 − 1) = −1 |
+| σ(s) | a(1 − a) | 0.5 × 0.5 = 0.25 |
+| m₁ + m₂ + b | 1 for each input | 1 |
+| w₁ × x₁ | the other input: x₁ for w₁, w₁ for x₁ | 2 for w₁ |
+
+So ∂L/∂w₁ = −1 × 0.25 × 1 × 2 = −0.5.
+
+## The backward pass
+
+Backpropagation computes these products from the right, sharing the work. Each node receives the gradient of the loss with respect to its output, multiplies it by each of its local slopes, and passes the results back to its inputs.
+
+Keep stepping through the widget. The gradient starts at 1 on the loss, since the loss changes one-for-one with itself. Then:
+
+<Steps>
+<Step title="Through the square">
+
+The loss node's local slope is 2(a − t) = −1. So ∂L/∂a = −1. The answer is too low, and raising it would lower the loss.
+
+</Step>
+<Step title="Through the sigmoid">
+
+Multiply by the sigmoid's slope, 0.25. So ∂L/∂s = −0.25.
+
+</Step>
+<Step title="Through the sum">
+
+Addition has a slope of 1 for every input, so it hands the same −0.25 to both products and to b. Addition copies the gradient.
+
+</Step>
+<Step title="Through the products">
+
+A product's slope for each input is the other input. So w₁ gets −0.25 × x₁ = −0.5, and w₂ gets −0.25 × x₂ = 0.25. Multiplication swaps.
+
+</Step>
+</Steps>
+
+Every weight now has its gradient, from one sweep. The **update** then moves each weight against its gradient. With a learning rate of 1, w₁ goes from 0.5 to 1, w₂ from 1 to 0.75 and b from 0 to 0.25. Run the next round forwards and the loss has fallen from 0.25 to 0.033.
+
+## Where paths meet
+
+In a real network a value usually feeds several later nodes. A hidden unit's output goes to every unit in the next layer. Nudging it changes the loss through all of those paths at once, so its gradient is the **sum** of the gradients arriving back along each of them.
+
+That is the whole algorithm.
+
+1. **Forward**: compute every node's value in order, and keep them.
+2. **Backward**: visit the nodes in reverse order. Each one adds up the gradients from the nodes that used it, multiplies by its local slopes, and passes the products to its own inputs.
+
+Each node is visited once in each direction, so the backward pass costs about twice the forward pass, whatever the number of weights. That is why it beats nudging one weight at a time by a factor of a billion.
+
+## Automatic differentiation
+
+Nobody writes backward passes by hand any more. Frameworks such as PyTorch and JAX record the graph as your code runs, and every basic operation comes with its local slope rule. Calling `loss.backward()` runs the backward sweep for whatever you computed. This is **reverse-mode automatic differentiation**, and backpropagation is its best-known instance.
+
+```python
+import torch
+
+x1, x2, t = 2.0, -1.0, 1.0
+w1 = torch.tensor(0.5, requires_grad=True)
+w2 = torch.tensor(1.0, requires_grad=True)
+b  = torch.tensor(0.0, requires_grad=True)
+
+loss = (torch.sigmoid(w1 * x1 + w2 * x2 + b) - t) ** 2
+loss.backward()
+w1.grad, w2.grad, b.grad     # (-0.5, 0.25, -0.25)
+```
+
+Reverse mode is efficient when there are many inputs and one output, which is exactly the shape of training: millions of weights in, one loss out. The opposite, **forward mode**, is efficient for few inputs and many outputs.
+
+## Vanishing and exploding gradients
+
+The backward pass multiplies local slopes together, one per layer. The sigmoid's slope is at most 0.25. Through twenty sigmoid layers, a gradient can shrink by a factor of 0.25²⁰, about one in a trillion, so the early layers barely learn. This is the **vanishing gradient** problem, and it held back deep networks for years. If the factors are greater than 1 instead, gradients **explode**.
+
+The modern fixes all keep the product of slopes near 1:
+
+- **ReLU** activations have a slope of exactly 1 wherever they are active.
+- **Residual connections** add each layer's input to its output, giving the gradient a path that skips the layer. Through an addition, as the widget shows, the gradient passes unchanged.
+- **Careful initialisation** and **normalisation layers** keep each layer's values in a range where slopes are reasonable.
+- **Gradient clipping** caps any gradient that does explode.
+
+## Costs
+
+<Ops items={[
+  ['Backward pass', 'about 2 × forward', 'two multiplies per weight instead of one'],
+  ['Memory', 'every activation', 'kept from the forward pass'],
+  ['Finite differences instead', 'W forward passes', 'one per weight, and less accurate'],
+]} />
+
+Memory is usually the binding limit. Training a large model stores the activations of every layer for every example in the batch. **Gradient checkpointing** keeps only some of them and recomputes the rest during the backward pass, trading time for memory.
+
+## Where it is used
+
+**Training every neural network.** Backpropagation and gradient descent together are how the weights of every modern network are learned.
+
+**Differentiable programming.** Anything written in a framework that tracks gradients can be tuned by gradient descent: physics simulations, renderers, robot controllers, even the parameters of an optimisation algorithm.
+
+**Sensitivity analysis.** The gradient of an output with respect to an input says which inputs matter most. Weather forecasting has used reverse-mode differentiation, under the name **adjoint methods**, for decades, and the same idea shows which pixels a network looked at to classify an image.
+
+## Key takeaways
+
+- Training needs the gradient of the loss with respect to every weight. Nudging each weight separately is far too slow.
+- A computation is a graph of small operations, each of which knows its own local slopes.
+- The chain rule multiplies local slopes along a path. Where paths meet, gradients add.
+- Backpropagation runs forwards to compute values, then backwards once to compute every gradient, at about twice the cost of the forward pass.
+- Addition copies the gradient to each input. Multiplication sends each input the gradient times the other input.
+- Long products of small slopes make gradients vanish. ReLU, residual connections and normalisation keep them healthy.
