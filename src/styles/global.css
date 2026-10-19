@@ -4974,3 +4974,60 @@ main {
 .ro-node.none circle {
   stroke-dasharray: 4 3;
 }
+
+/* ---------- GPUs ---------- */
+
+.viz-svg .gpu-value {
+  font: 700 13px var(--mono);
+}
+
+.viz-svg .gpu-code {
+  fill: var(--text);
+  font: 12px var(--mono);
+  text-anchor: start;
+}
+
+.viz-svg .gpu-code.dim {
+  fill: var(--text-2);
+}
+
+.gpu-slot {
+  fill: color-mix(in srgb, var(--text-3) 30%, var(--surface));
+}
+
+.gpu-slot.even {
+  fill: var(--series-1);
+}
+
+.gpu-slot.odd {
+  fill: var(--series-2);
+}
+
+.gpu-slot.off {
+  fill: none;
+  stroke: var(--border);
+  stroke-dasharray: 3 3;
+}
+
+.gpu-slot.issue {
+  fill: var(--series-1);
+}
+
+.gpu-slot.wait {
+  fill: color-mix(in srgb, var(--series-2) 35%, var(--surface));
+}
+
+.gpu-slot.idle {
+  fill: none;
+  stroke: var(--series-2);
+  stroke-dasharray: 2 2;
+}
+
+.viz-svg .gpu-core {
+  fill: var(--text);
+  font-weight: 700;
+}
+
+.gpu-slot.ready {
+  fill: color-mix(in srgb, var(--text-3) 25%, var(--surface));
+}

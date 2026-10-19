@@ -1,0 +1,132 @@
+---
+// Two GPU behaviours. `divergence`: eight lanes of one warp run an if/else in
+// lockstep, so each side runs with the other side's lanes switched off.
+// `latency`: warps take turns, so while some wait on memory others compute.
+import {
+  divergenceInputs,
+  latencySize,
+  latencySvg,
+  latencyTrace,
+  warpSize,
+  warpSvg,
+  warpTrace,
+  type DivergenceInput,
+} from '../lib/hardware';
+
+interface Props {
+  scenario: 'divergence' | 'latency';
+}
+
+const { scenario } = Astro.props;
+const input: DivergenceInput = 'halves';
+const values = divergenceInputs[input].values;
+const warp = warpTrace(values);
+const size = scenario === 'divergence' ? warpSize(values) : latencySize(1);
+const latency = latencyTrace(1);
+---
+
+<gpu-demo class="playground gpu-demo" data-scenario={scenario}>
+  <div class="viz-scroll">
+    {
+      scenario === 'divergence' ? (
+        <svg class="viz-svg chart" viewBox={`0 0 ${size.width} ${size.height}`} role="img" aria-label="Eight lanes of a warp, with one row per instruction issued. Filled cells are lanes doing work; empty cells are lanes switched off." set:html={warpSvg(values)} />
+      ) : (
+        <svg class="viz-svg chart" viewBox={`0 0 ${size.width} ${size.height}`} role="img" aria-label="One row per warp across time. Filled cells are cycles where that warp issues an instruction; hatched cells are cycles it spends waiting for memory." set:html={latencySvg(1)} />
+      )
+    }
+  </div>
+  {
+    scenario === 'divergence' ? (
+      <p class="tries">
+        Input:
+        {Object.entries(divergenceInputs).map(([key, { name }]) => (
+          <button type="button" data-input={key} aria-pressed={key === input ? 'true' : 'false'}>{name}</button>
+        ))}
+      </p>
+    ) : (
+      <div class="sliders">
+        <label><span>Warps on the core: <b data-out="warps">1</b></span><input type="range" name="warps" min="1" max="12" step="1" value="1" /></label>
+      </div>
+    )
+  }
+  {
+    scenario === 'divergence' ? (
+      <dl class="readouts" aria-live="polite">
+        <div><dt>Instructions issued</dt><dd data-out="cycles">{warp.cycles}</dd></div>
+        <div><dt>Lanes doing useful work</dt><dd data-out="use">{Math.round(warp.utilisation * 100)}%</dd></div>
+      </dl>
+    ) : (
+      <dl class="readouts" aria-live="polite">
+        <div><dt>Instructions</dt><dd data-out="work">{latency.work}</dd></div>
+        <div><dt>Cycles</dt><dd data-out="cycles">{latency.cycles}</dd></div>
+        <div><dt>Cycles the core is busy</dt><dd data-out="use">{Math.round(latency.utilisation * 100)}%</dd></div>
+      </dl>
+    )
+  }
+  <p class="hint" data-out="status" aria-live="polite">
+    {
+      scenario === 'divergence'
+        ? 'Half the lanes take the if and half the else. The warp runs both sides, one after the other, with the lanes that did not take each side sitting idle.'
+        : 'One warp: it computes, then waits ten cycles for each load, and the core has nothing else to do.'
+    }
+  </p>
+</gpu-demo>
+
+<script>
+  import { divergenceInputs, latencySize, latencySvg, latencyTrace, warpSize, warpSvg, warpTrace, type DivergenceInput } from '../lib/hardware';
+
+  const notes: Record<DivergenceInput, string> = {
+    'all-even': 'Every lane takes the if. The else is skipped entirely, so nothing is wasted.',
+    'all-odd': 'Every lane takes the else. The if side is skipped entirely.',
+    halves: 'Half the lanes take the if and half the else. The warp runs both sides, one after the other, with the lanes that did not take each side sitting idle.',
+    alternating: 'The same split as before, just interleaved. It costs exactly the same: what matters is whether lanes in one warp disagree, not which ones.',
+    'one-odd': 'A single lane disagrees, and the whole warp pays for both sides. Seven lanes sit idle through the else.',
+  };
+
+  class GpuDemo extends HTMLElement {
+    connectedCallback() {
+      const svg = this.querySelector('svg')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+
+      if (this.dataset.scenario === 'divergence') {
+        this.addEventListener('click', (event) => {
+          const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-input]');
+          if (!button) return;
+          const key = button.dataset.input as DivergenceInput;
+          const values = divergenceInputs[key].values;
+          const { width, height } = warpSize(values);
+          svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+          svg.innerHTML = warpSvg(values);
+          const trace = warpTrace(values);
+          out('cycles').textContent = String(trace.cycles);
+          out('use').textContent = `${Math.round(trace.utilisation * 100)}%`;
+          out('status').textContent = notes[key];
+          this.querySelectorAll('[data-input]').forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+        });
+        return;
+      }
+
+      this.addEventListener('input', (event) => {
+        const input = event.target as HTMLInputElement;
+        if (input.name !== 'warps') return;
+        const warps = Number(input.value);
+        const { width, height } = latencySize(warps);
+        svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        svg.innerHTML = latencySvg(warps);
+        const trace = latencyTrace(warps);
+        out('warps').textContent = String(warps);
+        out('work').textContent = String(trace.work);
+        out('cycles').textContent = String(trace.cycles);
+        out('use').textContent = `${Math.round(trace.utilisation * 100)}%`;
+        out('status').textContent =
+          warps === 1
+            ? 'One warp: it computes, then waits ten cycles for each load, and the core has nothing else to do.'
+            : trace.utilisation > 0.97
+              ? `${warps} warps: whenever one is waiting, another is ready. The memory delay is completely hidden, and the core never idles.`
+              : `${warps} warps: while one waits for memory, the scheduler issues from another. ${warps} times the work takes only ${(trace.cycles / latencyTrace(1).cycles).toFixed(1)} times as long.`;
+      });
+    }
+  }
+
+  customElements.define('gpu-demo', GpuDemo);
+</script>
