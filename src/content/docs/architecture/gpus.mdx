@@ -1,0 +1,116 @@
+---
+description: A GPU trades the CPU's few clever cores for thousands of simple ones, run in lockstep groups. It is built for throughput rather than speed on any one task, which suits graphics and machine learning, where the same small calculation runs on millions of values.
+difficulty: advanced
+---
+
+A CPU core is built to finish one stream of instructions as fast as possible. Much of its silicon goes on making that one stream quick: [caches](/architecture/cpu-caches/) to hide memory delays, [branch prediction](/architecture/branch-prediction/) to guess ahead, out-of-order execution to find work that does not have to wait. A desktop chip has perhaps eight to twenty-four such cores.
+
+Some problems do not need one fast stream. Shading a 4K frame means running the same small program for each of 8 million pixels. Training a neural network is mostly multiplying enormous matrices, millions of independent multiply-adds. What matters there is the total amount of work done per second, the **throughput**, not how quickly any single piece finishes.
+
+A **GPU**, or graphics processing unit, is built for throughput. It spends its silicon on arithmetic units instead of cleverness, thousands of them, and keeps them all busy by running a huge number of threads at once.
+
+## Many simple cores
+
+| | CPU | GPU |
+| --- | --- | --- |
+| Cores | 8 to 24 | thousands of simple ALUs |
+| Each core | fast, clever, independent | slow, simple, in lockstep groups |
+| Threads in flight | tens | tens of thousands |
+| Hiding memory delay | large caches | switching to other threads |
+| Good at | branchy, serial, latency-sensitive code | the same operation on lots of data |
+
+A GPU is divided into **streaming multiprocessors** (SMs, in Nvidia's terms; AMD calls them compute units). Each SM is a little like a CPU core with very wide [SIMD](/architecture/simd/) units. A large GPU has around a hundred of them.
+
+## Warps: threads in lockstep
+
+A program for a GPU, called a **kernel**, is written as if for a single thread: "take element i, compute something, write result i". It is then launched on millions of threads, one per element.
+
+The hardware does not run each thread independently. It groups them into **warps** of 32 threads (AMD's **wavefronts** are 32 or 64). A warp has one instruction pointer. Each cycle it fetches one instruction and executes it on all 32 threads at once, each in its own **lane** with its own registers and data. This is SIMD hidden behind a programming model of threads, and Nvidia calls it **SIMT**: single instruction, multiple threads.
+
+Lockstep is what makes GPUs cheap per unit of arithmetic: one instruction fetch and decode is shared by 32 lanes of work. It also has a price.
+
+## Branch divergence
+
+What happens when the threads of one warp disagree at an `if`? They cannot each go their own way, because they share an instruction pointer. Instead the warp runs both sides, one after the other. While it runs the `if` side, lanes that took the `else` are masked off and do nothing. Then it runs the `else` side with the other lanes masked.
+
+<GpuDemo scenario="divergence" />
+
+Each row is one instruction issued by the warp, and each column is a lane. Blue cells are lanes doing the `if` side, orange the `else`, and dashed cells are lanes switched off. When all lanes agree, the untaken side is skipped completely. When they split, the warp pays for both. Try "One odd": a single disagreeing lane makes the whole warp run the `else`.
+
+GPU code is written to keep threads in a warp on the same path. Sorting work so that similar items sit next to each other, or replacing a branch with arithmetic, like `y = select(x > 0, a, b)`, are common tricks.
+
+## Hiding memory latency
+
+Reading from the GPU's memory takes hundreds of cycles. A CPU hides that with large caches. A GPU has far less cache per thread, and hides the delay a different way: it keeps many warps resident on each SM, and when one stalls on a load, it simply issues an instruction from another that is ready. Switching is free, because every resident warp has its own registers already on the chip.
+
+<GpuDemo scenario="latency" />
+
+Each row is a warp across time. Blue cells are cycles where the warp issues an instruction, orange cells are cycles it spends waiting for memory, and grey cells are cycles it is ready but another warp has the turn. The bottom row is the core itself: filled when some warp issues, dashed when it has nothing to do. With one warp, the core sits idle most of the time. Add warps and the gaps fill up. With enough of them, there is always one ready, and the memory delay disappears from the total.
+
+This is why GPUs need so many threads to be efficient. A kernel launched on a few thousand elements leaves most of a large GPU idle. The fraction of the possible warps actually resident on an SM is its **occupancy**, and it is limited by how many registers and how much shared memory each thread uses.
+
+## The memory hierarchy
+
+GPUs have their own memory, separate from the CPU's main memory.
+
+**Registers.** Each SM has a very large register file, 256 KB on recent Nvidia chips, shared between its resident threads.
+
+**Shared memory.** A small, fast scratchpad per SM, managed by the program rather than automatically like a cache. Threads in a block use it to share data, such as a tile of a matrix that they all need.
+
+**Global memory.** Several to over a hundred gigabytes of very wide memory, GDDR or HBM, with bandwidth of one to several terabytes a second, ten or more times what a CPU gets. Bandwidth, not arithmetic, is often the limit.
+
+**Coalescing.** When the 32 threads of a warp read 32 consecutive values, the hardware combines them into one wide memory transaction. When they read 32 scattered addresses, it needs up to 32. [Locality](/architecture/cache-locality/) matters even more than on a CPU.
+
+## Programming a GPU
+
+General-purpose GPU code is written in **CUDA** (Nvidia), **HIP** (AMD), **Metal** (Apple), or portable layers such as OpenCL, SYCL and WebGPU. A kernel to add two arrays looks like a loop body:
+
+```cuda
+__global__ void add(const float *a, const float *b, float *out, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;   // which element is mine
+    if (i < n) out[i] = a[i] + b[i];
+}
+
+// Launch enough blocks of 256 threads to cover n elements.
+add<<<(n + 255) / 256, 256>>>(a, b, out, n);
+```
+
+Threads are grouped into **blocks** that run on one SM and can share memory and synchronise. Blocks are grouped into a **grid** covering the whole problem. The hardware schedules blocks onto SMs in any order, so the same program scales from a laptop GPU to a data centre one.
+
+The data must also get there. A GPU usually sits across a PCIe bus from the CPU, far slower than either side's memory, so programs move data over once and keep it on the GPU for as much work as possible.
+
+## Graphics pipelines
+
+GPUs began as fixed-function hardware for drawing [triangles](/graphics/rasterisation/). The same SMs now run vertex shaders, which [transform](/graphics/transforms/) each vertex, and pixel shaders, which [shade](/graphics/shading/) each pixel, alongside fixed hardware for rasterisation, texture filtering and, in recent chips, [ray tracing](/graphics/ray-tracing/). A pixel shader is the ideal GPU workload: millions of independent invocations, each running the same short program.
+
+## Tensor cores
+
+Neural networks spend most of their time multiplying matrices. Since 2017, GPUs have included **tensor cores**: units that multiply small matrices, such as 4×4 or larger tiles, in a single instruction, at reduced precision such as 16-bit or 8-bit floating point. They supply most of a modern data centre GPU's arithmetic, which is why GPUs became the default hardware for [training networks](/machine-learning/neural-networks/).
+
+## Costs
+
+<Ops items={[
+  ['One warp instruction', '32 lanes of work', 'for one fetch and decode'],
+  ['Divergent branch', 'both sides', 'masked lanes idle'],
+  ['Global memory load', 'hundreds of cycles', 'hidden by other warps'],
+  ['Coalesced vs scattered load', '1 vs up to 32 transactions', 'per warp'],
+  ['Moving data from the CPU', 'tens of GB/s', 'much slower than GPU memory'],
+]} />
+
+## Where it is used
+
+**Graphics.** Every game, every 3D application, and the compositor that draws a desktop's windows.
+
+**Machine learning.** Training and running large neural networks is dominated by matrix multiplication, which GPUs do far faster than CPUs. The largest models are trained on tens of thousands of GPUs at once.
+
+**Scientific computing.** Weather models, molecular dynamics, fluid simulation and most of the world's fastest supercomputers rely on GPUs.
+
+**Other parallel work.** Video encoding, image processing, password cracking and cryptocurrency mining all suit the GPU's shape: the same operation, over and over, on independent data.
+
+## Key takeaways
+
+- A GPU is built for throughput: thousands of simple arithmetic units instead of a few fast, clever cores.
+- Threads run in warps of 32 that share one instruction stream, which is SIMD behind a thread-like programming model.
+- When threads in a warp take different branches, the warp runs both sides with lanes masked off.
+- GPUs hide memory delay by keeping many warps resident and switching to a ready one every cycle, so they need a lot of parallel work.
+- Memory bandwidth is huge but often the limit. Neighbouring threads should read neighbouring addresses.
