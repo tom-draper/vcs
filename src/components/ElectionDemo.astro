@@ -1,0 +1,115 @@
+---
+// Six nodes electing a leader with the bully algorithm. Crash nodes by
+// clicking them, then start an election from any node and step through the
+// ELECTION, OK and COORDINATOR messages.
+import { electionSvg, electionView } from '../lib/distributed';
+
+const up = [true, true, true, true, true, true];
+---
+
+<election-demo class="playground election-demo">
+  <div class="viz-scroll">
+    <svg class="viz-svg chart el-chart" viewBox={`0 0 ${electionView.width} ${electionView.height}`} role="img" aria-label="Six nodes in a circle, numbered 1 to 6. Arrows show the messages of the current step of an election." set:html={electionSvg(up, 5, null)} />
+  </div>
+  <p class="el-legend" aria-hidden="true"><span class="election">ELECTION</span><span class="ok">OK</span><span class="coordinator">COORDINATOR</span><span class="lost">to a crashed node</span></p>
+  <p class="tries">
+    <button type="button" data-act="crash-leader">Crash the leader</button>
+    Start an election from node:
+    {[1, 2, 3, 4, 5, 6].map((i) => <button type="button" data-start={i - 1}>{i}</button>)}
+  </p>
+  <p class="tries">
+    <button type="button" data-act="step" disabled>Next step</button>
+    <button type="button" data-act="reset">Reset</button>
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Leader</dt><dd data-out="leader">node 6</dd></div>
+    <div><dt>Messages sent</dt><dd data-out="messages">0</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">Node 6 is the leader because it has the highest id. Crash it, then start an election from node 1, which has the lowest.</p>
+</election-demo>
+
+<script>
+  import { bully, electionSvg, type ElectionStep } from '../lib/distributed';
+
+  class ElectionDemo extends HTMLElement {
+    connectedCallback() {
+      let up = [true, true, true, true, true, true];
+      let leader: number | null = 5;
+      let steps: ElectionStep[] = [];
+      let at = -1;
+      let sent = 0;
+      const svg = this.querySelector('svg')!;
+      const stepButton = this.querySelector<HTMLButtonElement>('[data-act="step"]')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+
+      const render = (status: string) => {
+        svg.innerHTML = electionSvg(up, leader, steps[at] ?? null);
+        out('leader').textContent = leader !== null && up[leader] ? `node ${leader + 1}` : 'none';
+        out('messages').textContent = String(sent);
+        out('status').textContent = status;
+        stepButton.disabled = at < 0 || at >= steps.length - 1;
+        this.querySelectorAll<HTMLButtonElement>('[data-start]').forEach((b) => (b.disabled = !up[Number(b.dataset.start)]));
+      };
+
+      const advance = () => {
+        at++;
+        const step = steps[at];
+        sent += step.messages.length;
+        if (step.leader !== null) leader = step.leader;
+        const last = at === steps.length - 1;
+        render(
+          last
+            ? `${step.note} The election took ${sent} messages.${sent > 15 ? ' Starting from the lowest node is the worst case: every node challenges every node above it, so the count grows with the square of the number of nodes.' : ''}`
+            : step.note,
+        );
+      };
+
+      svg.addEventListener('click', (event) => {
+        const node = (event.target as Element).closest<SVGGElement>('[data-node]');
+        if (!node) return;
+        const i = Number(node.dataset.node);
+        up[i] = !up[i];
+        steps = [];
+        at = -1;
+        render(
+          up[i]
+            ? `Node ${i + 1} is back. In the bully algorithm a returning node with a higher id than the leader starts an election at once, and takes over.`
+            : i === leader
+              ? `The leader, node ${i + 1}, has crashed. The others will only notice when their messages to it go unanswered. Start an election from any node.`
+              : `Node ${i + 1} has crashed.`,
+        );
+      });
+
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
+        if (!button) return;
+        if (button.dataset.start) {
+          const starter = Number(button.dataset.start);
+          if (!up.some(Boolean)) return;
+          steps = bully(up, starter);
+          at = -1;
+          sent = 0;
+          leader = null;
+          advance();
+        } else if (button.dataset.act === 'step') {
+          if (at < steps.length - 1) advance();
+        } else if (button.dataset.act === 'crash-leader') {
+          if (leader === null || !up[leader]) return;
+          up[leader] = false;
+          steps = [];
+          at = -1;
+          render(`The leader, node ${leader + 1}, has crashed. Start an election from any node that is still up.`);
+        } else if (button.dataset.act === 'reset') {
+          up = up.map(() => true);
+          leader = 5;
+          steps = [];
+          at = -1;
+          sent = 0;
+          render('All six nodes are up, and node 6 leads.');
+        }
+      });
+    }
+  }
+
+  customElements.define('election-demo', ElectionDemo);
+</script>

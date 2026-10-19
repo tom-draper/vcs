@@ -447,6 +447,109 @@ export class Gossip {
   }
 }
 
+/* ---------- Leader election ---------- */
+
+export type ElectionKind = 'election' | 'ok' | 'coordinator';
+
+export interface ElectionMessage {
+  from: number;
+  to: number;
+  kind: ElectionKind;
+  /** The receiver is down, so the message goes unanswered. */
+  lost: boolean;
+}
+
+export interface ElectionStep {
+  messages: ElectionMessage[];
+  note: string;
+  /** The leader once this step is done, if one has been announced. */
+  leader: number | null;
+}
+
+/**
+ * The bully algorithm. A node that suspects the leader is gone sends ELECTION
+ * to every node with a higher id. Any live one replies OK and runs its own
+ * election. A node that hears no OK from above has the highest live id, and
+ * announces itself as COORDINATOR to everyone.
+ */
+export function bully(up: boolean[], starter: number): ElectionStep[] {
+  const n = up.length;
+  const steps: ElectionStep[] = [];
+  const started = new Set([starter]);
+  let frontier = [starter];
+  const names = (ids: number[]) => ids.map((i) => i + 1).join(', ');
+  while (frontier.length) {
+    const asks: ElectionMessage[] = [];
+    for (const s of frontier) for (let h = s + 1; h < n; h++) asks.push({ from: s, to: h, kind: 'election', lost: !up[h] });
+    if (!asks.length) break;
+    const live = [...new Set(asks.filter((m) => !m.lost).map((m) => m.to))];
+    const dead = [...new Set(asks.filter((m) => m.lost).map((m) => m.to))];
+    steps.push({
+      messages: asks,
+      leader: null,
+      note:
+        `Node${frontier.length > 1 ? 's' : ''} ${names(frontier)} send${frontier.length > 1 ? '' : 's'} ELECTION to every node with a higher id. ` +
+        (dead.length ? `Node${dead.length > 1 ? 's' : ''} ${names(dead)} ${dead.length > 1 ? 'have' : 'has'} crashed and never ${dead.length > 1 ? 'answer' : 'answers'}, so ${frontier.length > 1 ? 'senders wait' : 'the sender waits'} for a timeout.` : ''),
+    });
+    if (!live.length) break;
+    const oks = asks.filter((m) => !m.lost).map((m) => ({ from: m.to, to: m.from, kind: 'ok' as const, lost: false }));
+    const fresh = live.filter((h) => !started.has(h));
+    steps.push({
+      messages: oks,
+      leader: null,
+      note: `Node${live.length > 1 ? 's' : ''} ${names(live)} answer${live.length > 1 ? '' : 's'} OK: "I outrank you, I will take it from here."${fresh.length ? ` Each of them now runs an election of its own.` : ''}`,
+    });
+    fresh.forEach((h) => started.add(h));
+    frontier = fresh;
+  }
+  const winner = Math.max(...up.map((u, i) => (u ? i : -1)));
+  steps.push({
+    messages: up.map((u, i) => ({ from: winner, to: i, kind: 'coordinator' as const, lost: !u })).filter((m) => m.to !== winner),
+    leader: winner,
+    note: `Node ${winner + 1} heard no OK from anyone higher, so it has the highest live id. It announces itself as COORDINATOR to everyone.`,
+  });
+  return steps;
+}
+
+export const electionView = { width: 420, height: 320, r: 120 };
+
+export function electionAt(i: number, n: number, view = electionView) {
+  const a = -Math.PI / 2 + (i / n) * 2 * Math.PI;
+  return { x: view.width / 2 + view.r * Math.cos(a), y: view.height / 2 + view.r * Math.sin(a) };
+}
+
+export function electionSvg(up: boolean[], leader: number | null, step: ElectionStep | null, view = electionView): string {
+  const n = up.length;
+  const parts: string[] = [];
+  for (const m of step?.messages ?? []) {
+    const p = electionAt(m.from, n, view);
+    const q = electionAt(m.to, n, view);
+    const len = Math.hypot(q.x - p.x, q.y - p.y);
+    const ux = (q.x - p.x) / len;
+    const uy = (q.y - p.y) / len;
+    // Shift each arrow sideways, so replies run beside the messages they answer.
+    const ox = -uy * 5;
+    const oy = ux * 5;
+    const x1 = p.x + ux * 24 + ox;
+    const y1 = p.y + uy * 24 + oy;
+    const x2 = q.x - ux * (m.lost ? 60 : 26) + ox;
+    const y2 = q.y - uy * (m.lost ? 60 : 26) + oy;
+    const a = Math.atan2(uy, ux);
+    const head = [0.45, -0.45].map((o) => `${(x2 - 9 * Math.cos(a + o)).toFixed(1)},${(y2 - 9 * Math.sin(a + o)).toFixed(1)}`).join(' ');
+    parts.push(
+      `<g class="el-msg ${m.kind}${m.lost ? ' lost' : ''}"><line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}"/>${m.lost ? `<text x="${(x2 + ux * 12).toFixed(1)}" y="${(y2 + uy * 12).toFixed(1)}">×</text>` : `<polygon points="${x2.toFixed(1)},${y2.toFixed(1)} ${head}"/>`}</g>`,
+    );
+  }
+  up.forEach((u, i) => {
+    const { x, y } = electionAt(i, n, view);
+    const cls = !u ? ' down' : i === leader ? ' leader' : '';
+    parts.push(
+      `<g class="el-node${cls}" data-node="${i}"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="20"/><text x="${x.toFixed(1)}" y="${y.toFixed(1)}">${i + 1}</text>${i === leader && u ? `<text class="el-tag" x="${x.toFixed(1)}" y="${(y + 32).toFixed(1)}">leader</text>` : ''}${!u ? `<text class="el-tag" x="${x.toFixed(1)}" y="${(y + 32).toFixed(1)}">crashed</text>` : ''}</g>`,
+    );
+  });
+  return parts.join('');
+}
+
 /* ---------- Message sequences ---------- */
 
 export const distributedSequences = {
@@ -501,6 +604,33 @@ export const distributedSequences = {
       { from: 0, to: 2, label: 'accept 5, x', note: 'The acceptors that promised are asked to accept.' },
       { from: 1, to: 0, label: 'accepted', note: 'Acceptor 1 has made no promise to a higher number since, so it accepts.' },
       { from: 2, to: 0, label: 'accepted', note: 'A majority has accepted x. The value is chosen, and no later proposal can choose anything else.' },
+    ],
+  },
+  'lease-pause': {
+    actors: ['node 1', 'lock service', 'node 2', 'storage'],
+    steps: [
+      { from: 0, to: 1, label: 'acquire lease', note: 'Node 1 asks for the leader lease.' },
+      { from: 1, to: 0, label: 'granted, 10 s', note: 'Node 1 is leader for the next ten seconds, as long as it renews in time.' },
+      { from: 0, to: 0, label: 'GC pause, 15 s', note: 'Node 1 stops dead in a long garbage collection pause. It does not know time has passed.' },
+      { from: 1, to: 1, label: 'lease expired', note: 'Ten seconds pass with no renewal. As far as the lock service knows, node 1 is dead.' },
+      { from: 2, to: 1, label: 'acquire lease', note: 'Node 2 asks for the lease.' },
+      { from: 1, to: 2, label: 'granted, 10 s', note: 'Node 2 is now the leader.' },
+      { from: 2, to: 3, label: 'write x = 2', note: 'The new leader writes to storage.' },
+      { from: 0, to: 3, label: 'write x = 1', note: 'Node 1 wakes up still believing it is leader, and writes. Storage accepts it, and overwrites the new leader\'s work. Two leaders at once: split brain.' },
+    ],
+  },
+  'lease-fencing': {
+    actors: ['node 1', 'lock service', 'node 2', 'storage'],
+    steps: [
+      { from: 0, to: 1, label: 'acquire lease', note: 'Node 1 asks for the lease.' },
+      { from: 1, to: 0, label: 'granted, token 33', note: 'The lease comes with a fencing token, a number that goes up every time the lease is granted.' },
+      { from: 0, to: 0, label: 'GC pause, 15 s', note: 'Node 1 freezes, as before.' },
+      { from: 1, to: 1, label: 'lease expired', note: 'The lease runs out.' },
+      { from: 2, to: 1, label: 'acquire lease', note: 'Node 2 asks for the lease.' },
+      { from: 1, to: 2, label: 'granted, token 34', note: 'Node 2 gets the lease, and a higher token.' },
+      { from: 2, to: 3, label: 'write x = 2, token 34', note: 'Every write carries the writer\'s token. Storage remembers the highest token it has seen: 34.' },
+      { from: 0, to: 3, label: 'write x = 1, token 33', note: 'Node 1 wakes and writes with its old token.' },
+      { from: 3, to: 0, label: 'rejected: 33 < 34', note: 'Storage refuses any token lower than one it has already seen. The old leader is fenced off, however late it wakes up.' },
     ],
   },
 } satisfies Record<string, Sequence>;

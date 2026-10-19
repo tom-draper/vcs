@@ -38,6 +38,7 @@ import HeartbeatDemo from './HeartbeatDemo.astro';
 import PartitionDemo from './PartitionDemo.astro';
 import QuorumDemo from './QuorumDemo.astro';
 import RaftDemo from './RaftDemo.astro';
+import ElectionDemo from './ElectionDemo.astro';
 import ReplicationDemo from './ReplicationDemo.astro';
 import IndexDemo from './IndexDemo.astro';
 import IsolationDemo from './IsolationDemo.astro';
@@ -161,6 +162,7 @@ export const components = {
   PartitionDemo,
   QuorumDemo,
   RaftDemo,
+  ElectionDemo,
   ReplicationDemo,
   IndexDemo,
   IsolationDemo,
