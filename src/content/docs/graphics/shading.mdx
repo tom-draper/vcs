@@ -1,0 +1,130 @@
+---
+description: Shading decides how bright each point of a surface is, from the direction it faces, where the light is and where the viewer stands. The Phong model splits it into ambient, diffuse and specular light, and the choice of where to compute it, per face, per corner or per pixel, decides how smooth the result looks.
+difficulty: intermediate
+---
+
+[Rasterisation](/graphics/rasterisation/) says which pixels a triangle covers. It says nothing about their colour. Paint every pixel of a sphere the same red and it looks like a flat disc. What makes it look round is that each point is lit differently depending on which way it faces.
+
+**Shading** is the calculation of that brightness. It needs three directions at every point:
+
+- **N**, the **normal**: the direction the surface faces, at right angles to it.
+- **L**, the direction towards the light.
+- **V**, the direction towards the viewer.
+
+## Diffuse light
+
+A rough surface, like chalk or matt paint, scatters light equally in every direction. How bright it looks depends only on how much light lands on it, and that depends on the angle the light arrives at. A beam hitting the surface head-on is concentrated on a small patch. The same beam arriving at a glancing angle is spread over a larger area, so each part gets less.
+
+The amount is the cosine of the angle between N and L, which for unit vectors is just their dot product. This is **Lambert's cosine law**:
+
+```
+diffuse = max(0, N · L)
+```
+
+It is 1 where the surface faces the light, falls to 0 at the edge where the light grazes it, and is clamped at 0 on the side facing away. It does not depend on V at all, which is what "matt" means: the surface looks the same from anywhere.
+
+## Specular light
+
+A shiny surface also reflects some light like a mirror, in one direction. Reflect L about the normal to get R, the mirror direction. A viewer looking along R sees a bright **highlight**. A viewer slightly off sees less.
+
+```
+R = 2(N · L)N − L
+specular = max(0, R · V) ^ shininess
+```
+
+Raising the cosine to a power makes it fall off faster. A low **shininess** like 5 gives a broad, soft highlight, as on plastic. A high one like 200 gives a small sharp point, as on polished metal.
+
+## Ambient light
+
+In a real room, light bounces off walls and ceilings and reaches even the side of an object facing away from the lamp. Computing those bounces properly is what [ray tracing](/graphics/ray-tracing/) and global illumination are for. The cheap stand-in is an **ambient** term: a small constant added everywhere, so nothing is pitch black.
+
+## The Phong reflection model
+
+Add the three, each with its own strength:
+
+```
+colour = ka · ambient + kd · (N · L) · surface colour + ks · (R · V)^shininess · light colour
+```
+
+This is the **Phong reflection model**, from Bui Tuong Phong's 1975 thesis. The diffuse term takes the surface's colour, and the specular term takes the light's colour, which is why highlights on a red plastic ball are white.
+
+<ShadingDemo />
+
+Drag across the sphere to move the light, and point at a spot to see N · L, R · V and the three terms there. Turn the terms off one at a time: diffuse alone looks like chalk, specular alone is a floating dot, ambient alone is a flat disc.
+
+## Flat, Gouraud and Phong shading
+
+A sphere in a renderer is not a sphere. It is a mesh of flat triangles, and the question is how often to run the lighting.
+
+**Flat shading** lights each face once, using the face's own normal, and fills it with one colour. It is cheap and every facet shows. Switch the widget to "Flat".
+
+**Gouraud shading** gives each vertex a normal, the average of the faces around it, which is the direction the true smooth surface would face there. It lights each vertex and [interpolates the colours](/graphics/rasterisation/) across the face. The facets disappear. But a highlight smaller than a face falls between vertices and is smeared across the whole face or missed entirely, so as the light moves it flickers from corner to corner. Switch to "Gouraud" and drag the light slowly.
+
+**Phong shading** (a separate idea from the reflection model, by the same author) interpolates the normal instead of the colour, renormalises it, and runs the lighting at every pixel. Highlights are round wherever they fall. It costs a lighting calculation per pixel instead of per vertex, which is why it was a luxury in 1975 and is the default now.
+
+<Aside type="tip" title="Blinn-Phong">
+
+Computing R at every pixel is a little expensive. **Blinn-Phong** uses the **half vector** H, halfway between L and V, and measures N · H instead of R · V. The highlight is similar in shape, it is cheaper, and it behaves better at grazing angles. It was the fixed-function lighting model in OpenGL and Direct3D for years.
+
+</Aside>
+
+## Normals and textures
+
+Lighting depends on the normal far more than on the shape. That is exploited constantly.
+
+**Normal maps** store a normal per pixel in a texture. A flat wall with a normal map of bricks is lit as if every brick and gap had depth, though the geometry is one rectangle.
+
+**Textures** in general supply per-pixel values for the terms of the model: the surface colour from one image, the shininess from another. The interpolated texture coordinates from the rasteriser say where in each image to look.
+
+## Beyond Phong
+
+Phong is not physically based. It can reflect more light than arrives, and it does not get the look of metals or of surfaces at grazing angles right. Modern engines use **physically based rendering** (PBR). The ingredients are the same, N, L and V, but the formulas come from models of microscopic facets on the surface, with two parameters that artists find intuitive: **roughness**, which plays the role of shininess, and **metalness**. Energy is conserved, so a rougher surface has a broader but dimmer highlight.
+
+## Implementation
+
+```python
+def normalise(v):
+    length = sum(x * x for x in v) ** 0.5
+    return tuple(x / length for x in v)
+
+def dot(a, b):
+    return sum(x * y for x, y in zip(a, b))
+
+def phong(normal, to_light, to_viewer, colour, shininess=32,
+          ambient=0.1, diffuse=0.8, specular=0.6):
+    n, l, v = normalise(normal), normalise(to_light), normalise(to_viewer)
+    n_dot_l = dot(n, l)
+    lit = max(0.0, n_dot_l)
+    r = tuple(2 * n_dot_l * ni - li for ni, li in zip(n, l))   # mirror of L
+    shine = max(0.0, dot(r, v)) ** shininess if n_dot_l > 0 else 0.0
+    return tuple(
+        min(1.0, c * (ambient + diffuse * lit) + specular * shine)
+        for c in colour
+    )
+```
+
+## Costs
+
+<Ops items={[
+  ['Flat', 'once per face', 'facets show'],
+  ['Gouraud', 'once per vertex', 'small highlights smear'],
+  ['Phong', 'once per pixel', 'the usual choice today'],
+  ['Each extra light', '+1 evaluation', 'per pixel, for each light that reaches it'],
+]} />
+
+## Where it is used
+
+**Every pixel shader.** A pixel shader on the GPU is a small program run for each covered pixel. Lighting is most of what it does.
+
+**Deferred shading.** Scenes with hundreds of lights first rasterise everything once, storing each pixel's normal, colour and depth in a set of buffers. Lighting then runs only on the pixels each light actually reaches, instead of for every triangle against every light.
+
+**Stylised rendering.** Cartoon, or **cel**, shading takes the diffuse term and rounds it to two or three bands, giving flat-coloured regions with sharp boundaries.
+
+## Key takeaways
+
+- Shading uses three directions: the surface normal N, the light direction L and the view direction V.
+- Diffuse light is N · L. It makes surfaces look matt and round.
+- Specular light is (R · V) raised to a shininess power. It makes highlights.
+- Ambient light is a constant stand-in for light bounced from everywhere else.
+- Flat shading lights faces, Gouraud lights vertices and blends colours, Phong blends normals and lights every pixel.
+- Normal maps and textures feed per-pixel values into the same model. Modern engines use physically based models with roughness and metalness.
