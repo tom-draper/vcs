@@ -3749,6 +3749,11 @@ main {
   min-height: 0;
 }
 
+/* The memory hierarchy is a long row, so it gets a wider frame than the cube. */
+.plate.hero.cache-hierarchy .plate-stage {
+  aspect-ratio: 4 / 3;
+}
+
 .plate-canvas {
   position: absolute;
   inset: 0;

@@ -3,10 +3,16 @@
 // out to the nearest level that has its line, and the line travel back.
 import { levels, patterns } from '../lib/cache-hierarchy';
 
+interface Props {
+  /** `hero` plays the access patterns on a loop with no controls, for the home page. */
+  variant?: 'figure' | 'hero';
+}
+
+const { variant = 'figure' } = Astro.props;
 const pattern = patterns[0];
 ---
 
-<cache-hierarchy class="plate cache-hierarchy">
+<cache-hierarchy class:list={['plate', 'cache-hierarchy', variant]} data-variant={variant}>
   <div class="plate-stage">
     <div
       class="plate-canvas"
@@ -15,10 +21,15 @@ const pattern = patterns[0];
     >
     </div>
     <div class="plate-labels" aria-hidden="true"></div>
-    <p class="plate-hint" data-out="hint">Drag to turn. Click any word to read it. Farther away means slower.</p>
+    {variant === 'figure' && <p class="plate-hint" data-out="hint">Drag to turn. Click any word to read it. Farther away means slower.</p>}
     <p class="plate-fallback" hidden>This figure needs WebGL to draw. The controls and readout still work.</p>
   </div>
 
+  {variant === 'hero' && (
+    <p class="plate-verdict hero-caption" data-out="verdict" data-tone="neutral">Each read travels out to the nearest level that holds its data.</p>
+  )}
+
+  {variant === 'figure' && (
   <div class="plate-panel">
     <div class="plate-col">
       <div class="plate-group" role="group" aria-label="Access pattern">
@@ -73,6 +84,7 @@ const pattern = patterns[0];
       Press Play to run the pattern, or Step through one read at a time.
     </p>
   </div>
+  )}
 </cache-hierarchy>
 
 <script>
@@ -80,6 +92,9 @@ const pattern = patterns[0];
   import type { CacheScene } from '../lib/cache-scene';
 
   const tones = ['good', 'neutral', 'warn', 'bad'];
+
+  // The hero loop plays these patterns in turn, fast, with a pause between them.
+  const reel = ['loop', 'array', 'list', 'stride'];
 
   class CacheHierarchyFigure extends HTMLElement {
     private hierarchy = new Hierarchy();
@@ -92,7 +107,10 @@ const pattern = patterns[0];
     private scene?: CacheScene;
     private reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+    private hero = false;
+
     connectedCallback() {
+      this.hero = this.dataset.variant === 'hero';
       this.addEventListener('click', (event) => {
         const set = (event.target as HTMLElement).closest('button')?.dataset;
         if (!set) return;
@@ -123,7 +141,7 @@ const pattern = patterns[0];
               this.querySelector<HTMLElement>('.plate-labels')!,
               {
                 reducedMotion: this.reduced,
-                interactive: true,
+                interactive: !this.hero,
                 onPick: (word) => {
                   this.pause();
                   this.read(word, false);
@@ -131,6 +149,7 @@ const pattern = patterns[0];
                 },
               },
             );
+            if (this.hero && !this.reduced) this.loop();
           } catch {
             this.querySelector<HTMLElement>('.plate-fallback')!.hidden = false;
             this.classList.add('no-webgl');
@@ -144,6 +163,23 @@ const pattern = patterns[0];
     disconnectedCallback() {
       this.pause();
       this.scene?.dispose();
+    }
+
+    /** Plays each pattern of the reel to the end, then the next, forever. */
+    private async loop() {
+      const run = ++this.run;
+      this.fast = true;
+      for (let i = 0; this.run === run; i++) {
+        this.pattern = patterns.find((p) => p.id === reel[i % reel.length])!;
+        this.hierarchy = new Hierarchy();
+        this.next = 0;
+        this.scene?.clear();
+        this.playing = true;
+        while (this.run === run && this.next < this.pattern.words.length) {
+          await this.read(this.pattern.words[this.next++], false);
+        }
+        await new Promise((done) => setTimeout(done, 2400));
+      }
     }
 
     private choose(id: string) {
@@ -190,6 +226,14 @@ const pattern = patterns[0];
 
     private render() {
       const out = (name: string) => this.querySelector<HTMLElement>(`[data-out="${name}"]`)!;
+      if (this.hero) {
+        const last = this.hierarchy.log.at(-1);
+        if (!last) return;
+        const verdict = out('verdict');
+        verdict.textContent = `${this.pattern.name}. ${describe(last)}`;
+        verdict.dataset.tone = tones[last.servedBy];
+        return;
+      }
       const log = this.hierarchy.log;
       const sum = totals(log);
       const last: Read | undefined = log.at(-1);
