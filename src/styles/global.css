@@ -5100,3 +5100,115 @@ main {
   color: var(--text-3);
   font-size: 0.75rem;
 }
+
+/* ---------- Attention ---------- */
+
+.at-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 44rem) {
+  .at-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.at-chart {
+  cursor: pointer;
+}
+
+.viz-svg .at-word {
+  fill: var(--text-2);
+  font: 12px var(--mono);
+  text-anchor: end;
+}
+
+.viz-svg .at-word.at-col {
+  text-anchor: start;
+}
+
+.viz-svg .at-word.on,
+.viz-svg .at-row.on .at-word {
+  fill: var(--accent);
+  font-weight: 700;
+}
+
+.at-hit {
+  fill: transparent;
+}
+
+.at-row:hover .at-hit {
+  fill: var(--bg-soft);
+}
+
+.at-cell {
+  fill: var(--series-1);
+}
+
+.at-cell.masked {
+  fill: none;
+  stroke: var(--border);
+  stroke-dasharray: 2 3;
+}
+
+.at-frame {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  pointer-events: none;
+}
+
+.at-title {
+  margin: 0 0 0.5rem !important;
+  font-size: 0.9rem;
+}
+
+.at-bars {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.82rem;
+}
+
+.at-bars li {
+  display: grid;
+  grid-template-columns: 4.2rem minmax(5rem, 1fr) 2.8rem 5rem;
+  align-items: center;
+  gap: 0.5rem;
+  line-height: 1.7;
+}
+
+.at-bars li.masked {
+  opacity: 0.45;
+}
+
+.at-name {
+  font-family: var(--mono);
+  text-align: right;
+}
+
+.at-bar {
+  height: 0.6rem;
+  border-radius: 0.3rem;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.at-bar i {
+  display: block;
+  height: 100%;
+  background: var(--series-1);
+}
+
+.at-num {
+  font: 600 0.8rem var(--mono);
+  text-align: right;
+}
+
+.at-score {
+  color: var(--text-3);
+  font: 0.72rem var(--mono);
+}
