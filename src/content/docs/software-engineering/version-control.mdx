@@ -1,0 +1,128 @@
+---
+description: Version control records every state a project has been in, so that changes can be compared, undone, and combined from many people working at once. Git does it with a content-addressed store of snapshots, a graph of commits that point to their parents, and branches that are nothing more than movable names.
+difficulty: intermediate
+---
+
+Without version control, a project's history is a folder of files called `report-final.docx`, `report-final-2.docx` and `report-final-really.docx`. Nobody can say what changed between them, or why, or undo one change without losing another. When two people edit at once, one of them emails the other a copy and hopes.
+
+A **version control system** keeps every version of every file, records who changed what and why, and helps combine work done in parallel. Almost all software is built with one, and almost all of it now uses **Git**. Git's interface is famously confusing, but the model underneath is small, and once it is clear the commands make sense.
+
+## Snapshots, not differences
+
+Early systems such as RCS and CVS stored each file's history as a chain of differences: version 1, then the lines that changed to make version 2, and so on. Git stores **snapshots**. Each commit records the full state of every file in the project at that moment.
+
+That sounds wasteful, and it would be, except that Git never stores the same content twice.
+
+## A store addressed by content
+
+Everything Git keeps lives in an **object store**, a [key-value store](/data-structures/hash-tables/) whose keys are [cryptographic hashes](/security/cryptographic-hash-functions/) of the values. Git uses SHA-1 (moving to SHA-256), and shows ids as 40 hex characters, usually shortened to the first 7. Store the same bytes twice and they get the same key, so they are stored once.
+
+There are three kinds of object:
+
+- A **blob** is the contents of one file. Just the bytes, not even its name.
+- A **tree** is a directory: a list of names, each with the id of a blob or of another tree.
+- A **commit** points to one tree, the snapshot of the whole project, plus the ids of its **parent** commits, an author, a date and a message.
+
+A new commit that changes one file creates one new blob, new trees for the directories on the path to it, and the commit itself. Every unchanged file and directory is the same object as before, shared by id. A thousand commits to a project with ten thousand files does not store ten million files.
+
+Because each object's id is a hash of its contents, and those contents include the ids of other objects, the whole history is a [Merkle tree](/data-structures/merkle-trees/), or more precisely a Merkle DAG. Changing one byte in an old file would change its blob's id, which changes its tree's id, which changes the commit's id, and every commit after it. A commit id is a fingerprint of the entire history that led to it.
+
+## Branches are just names
+
+The commits form a [directed acyclic graph](/foundations/graph-theory/): each points back to its parents. To find your way into the graph, you need names.
+
+A **branch** is a name for one commit, stored as a tiny file containing that commit's id, such as `.git/refs/heads/main`. That is all. Creating a branch writes one id into one file. **HEAD** names the branch you are on. Committing makes a new commit whose parent is the current one, then moves the current branch to point at it.
+
+<GitDemo />
+
+Make a branch, commit on it, then switch back to main and commit there too. The history forks: two branches, each with commits the other does not have. Click any commit to see its objects. Files the commit did not change point to the same blob as its parent.
+
+## Merging
+
+To combine two branches, Git finds their **merge base**, the most recent commit both have in their history. Then, for every file, it compares three versions: the base, ours and theirs.
+
+| Base | Ours | Theirs | Result |
+| --- | --- | --- | --- |
+| A | A | A | A |
+| A | B | A | B, we changed it |
+| A | A | C | C, they changed it |
+| A | B | B | B, both made the same change |
+| A | B | C | **conflict** |
+
+This is a **three-way merge**. The base is what makes it work: with only the two tips, Git could see that the versions differ but not which side changed. Within a file, it does the same thing line by line, using a [diff](/algorithms/edit-distance/) of each side against the base. A conflict happens only when both sides changed the same lines differently, and then a person decides.
+
+The result is a **merge commit** with two parents, recording that both lines of work were combined.
+
+If the current branch has no commits of its own since the other split off, there is nothing to combine. Git simply moves the branch label forward to the other's commit. This is a **fast-forward**, and it creates no new commit. Try merging in the widget both ways.
+
+## Rebasing
+
+**Rebase** is the other way to combine work. Instead of joining two lines of history, it takes the commits on your branch and replays them, one at a time, on top of the other branch, as if you had started your work from there.
+
+Commits cannot be changed: a commit's id is a hash of its parent, among other things, so a commit with a new parent is a new commit. Rebasing creates copies with new ids, moves the branch to the last copy, and leaves the originals behind. Rebase in the widget and watch them fade: no branch reaches them any more, and Git will eventually delete them.
+
+The result is a straight, readable history with no merge commits. The cost is that history has been rewritten. If someone else had already built on the old commits, their history and yours now disagree. The usual rule is to rebase only commits that nobody else has seen.
+
+## Distributed
+
+Older systems such as Subversion had one central server holding the history. Git is **distributed**: every clone is a complete copy of the repository, with every object and every branch.
+
+- **clone** copies a whole repository.
+- **fetch** downloads objects you do not have yet. Content addressing makes this efficient: the two sides compare commit ids to find what is missing, and send only that.
+- **push** uploads your new objects and asks the other side to move a branch. It refuses unless the move is a fast-forward, so that nobody's commits are silently thrown away.
+
+Since every commit and file is identified by its hash, nothing can be corrupted or tampered with in transit without the ids failing to match.
+
+## Packing
+
+Storing a whole new blob every time a large file changes slightly is wasteful. Periodically, Git compresses loose objects into **packfiles**, where similar objects are stored as a base plus a delta of the differences. So under the hood, Git does store differences after all, but only as a compression detail. The model is still snapshots.
+
+## Implementation
+
+The core of Git's object store fits in a few lines:
+
+```python
+import hashlib, zlib, os
+
+def store(kind, data: bytes, root=".git/objects"):
+    obj = f"{kind} {len(data)}\0".encode() + data
+    oid = hashlib.sha1(obj).hexdigest()
+    path = os.path.join(root, oid[:2], oid[2:])
+    if not os.path.exists(path):                 # same content, same id: stored once
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(zlib.compress(obj))
+    return oid
+
+def commit(tree_id, parents, message, author):
+    lines = [f"tree {tree_id}"] + [f"parent {p}" for p in parents]
+    lines += [f"author {author}", "", message]
+    return store("commit", "\n".join(lines).encode())
+```
+
+## Costs
+
+<Ops items={[
+  ['Commit', 'O(changed files + their directories)', 'everything else is shared'],
+  ['Create a branch', 'O(1)', 'writes one id'],
+  ['Switch branch', 'O(files that differ)', 'rewrites the working directory'],
+  ['Find the merge base', 'O(commits since it)', 'walking back from both tips'],
+  ['Fetch', 'O(new objects)', 'ids say exactly what is missing'],
+]} />
+
+## Where it is used
+
+**Nearly all software.** Git hosts the Linux kernel, where it was written in 2005, and almost every open-source and commercial project since. GitHub, GitLab and similar services add code review, issue tracking and automation around it.
+
+**Very large monorepos.** Google, Meta and Microsoft keep most of their code in single enormous repositories, using their own systems (Piper, Sapling) or Git with extensions that fetch only the files each developer needs.
+
+**Beyond code.** The same model of content-addressed snapshots is used for configuration ("GitOps"), datasets and machine learning models, writing, and the package caches of tools such as Nix.
+
+## Key takeaways
+
+- Git stores snapshots of the whole project in an object store addressed by content hashes, so identical content is stored once.
+- Blobs hold file contents, trees hold directories, and commits point to a tree and to their parents.
+- A commit's id depends on everything before it, so history cannot be altered without every later id changing.
+- A branch is just a movable name for a commit. HEAD says which branch you are on.
+- Merging uses the merge base for a three-way comparison. If one side has no new commits, it is a fast-forward.
+- Rebasing replays commits on a new base as new commits, which rewrites history.
