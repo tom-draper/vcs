@@ -1,0 +1,177 @@
+---
+description: A transform moves, turns or resizes every point of a shape at once. Written as matrices, any chain of them collapses into one, which is how a renderer carries a whole scene from the files it was modelled in to the pixels of the screen.
+difficulty: intermediate
+---
+
+A 3D model is a list of points. A teapot is a few thousand of them, each with an x, a y and a z, joined into triangles. The modeller built it around its own origin, with no idea where it would end up. To draw it on screen, every one of those points has to be moved to where the teapot sits in the scene, then seen from wherever the camera is, then flattened onto a rectangle of pixels.
+
+All of that is done with **transforms**. A transform is a rule that maps each point to a new point. The ones graphics needs, moving, turning, resizing and projecting, can all be written as matrices, and matrices have a property that makes the whole pipeline cheap: any chain of them multiplies down to a single matrix.
+
+## Three basic moves in 2D
+
+Start flat, with points written as (x, y).
+
+**Scale** multiplies each coordinate: x by `sx` and y by `sy`. A scale of 2 doubles the size. A negative scale mirrors the shape.
+
+**Rotate** turns every point about the origin by an angle θ:
+
+```
+x' = x cos θ − y sin θ
+y' = x sin θ + y cos θ
+```
+
+**Translate** adds a fixed amount: x + `tx`, y + `ty`.
+
+Scaling and rotation are **linear**: each new coordinate is a weighted sum of the old ones, so each can be written as a 2×2 matrix that multiplies the point.
+
+```
+scale  [ sx  0 ]      rotate [ cos θ  −sin θ ]
+       [ 0  sy ]             [ sin θ   cos θ ]
+```
+
+Translation is not linear. It adds a constant, and no 2×2 matrix can do that, because a matrix always sends the origin to the origin.
+
+## Homogeneous coordinates
+
+The fix is a trick. Write each point with an extra coordinate fixed at 1, so (x, y) becomes (x, y, 1), and use 3×3 matrices. The extra column multiplies that 1, so it adds a constant:
+
+```
+[ 1  0  tx ] [ x ]   [ x + tx ]
+[ 0  1  ty ] [ y ] = [ y + ty ]
+[ 0  0  1  ] [ 1 ]   [   1    ]
+```
+
+These are **homogeneous coordinates**. Now all three moves are matrices of the same shape, and a sequence of them is a product of matrices. Apply `S` first, then `R`, then `T`, and the combined transform is
+
+```
+M = T · R · S
+```
+
+read right to left, since the matrix nearest the point acts first. `M` is computed once and then applied to every point, so a model with ten thousand vertices costs ten thousand matrix-vector multiplications however many steps went into `M`.
+
+<TransformDemo />
+
+## Order matters
+
+Matrix multiplication is not commutative, and neither are transforms. Try the orders in the widget.
+
+**Scale, then rotate, then move** does what most people expect. The F is stretched along its own sides, turned about its own corner, then put where the move sliders say.
+
+**Move first** and the later rotation swings the F around the origin of the whole plane, like a weight on a string, because rotation always turns about the origin. The later scale stretches the distance it was moved, too.
+
+**Rotate before an uneven scale** and the F is sheared. The stretch acts along the x and y axes, but the F's sides are no longer lined up with them.
+
+This is why engines store an object's placement as separate position, rotation and scale values and build the matrix in the fixed order `T · R · S`. To rotate something about a point other than the origin, the standard move is to translate that point to the origin, rotate, and translate back: `T(p) · R · T(−p)`.
+
+## Into 3D
+
+In 3D, points become (x, y, z, 1) and matrices become 4×4. Scale and translation work exactly as before. Rotation is a 3×3 block that turns about an axis. Rotation about y, the one used to turn a house to face a different way, is
+
+```
+[  cos θ  0  sin θ  0 ]
+[    0    1    0    0 ]
+[ −sin θ  0  cos θ  0 ]
+[    0    0    0    1 ]
+```
+
+Rotations about arbitrary axes are built from these, or stored as **quaternions**, a four-number form that interpolates smoothly and does not suffer from **gimbal lock**, where two rotation axes line up and a degree of freedom is lost.
+
+## From the model to the screen
+
+A renderer moves every vertex through a chain of **coordinate spaces**, each reached by one matrix.
+
+<CoordinateSpaces />
+
+**Model space** is where the object was built: its own origin, its own axes.
+
+**World space** is the shared scene. Each object has a **model matrix**, `T · R · S`, that places it. Three copies of the same house share one list of vertices and differ only in their model matrices.
+
+**View space** puts the camera at the origin, looking down the −z axis. The **view matrix** is the inverse of the camera's own placement: to see the world from a camera standing at (5, 2, 0), move the whole world by (−5, −2, 0). Nothing changes shape. It is the same scene, described from the camera's point of view.
+
+**Clip space** is where perspective happens. The camera sees a **frustum**, a pyramid with its tip cut off by a near plane and its base at a far plane. The **projection matrix** maps it onto a cube.
+
+**Screen space** drops the depth (keeping it aside per pixel, to decide which surface is in front) and stretches x and y to pixel coordinates. This is what the [rasteriser](/graphics/rasterisation/) works with.
+
+The three matrices combine into one, often called the **MVP** matrix:
+
+```
+clip = Projection · View · Model · vertex
+```
+
+A **vertex shader** on the GPU runs this multiplication once for every vertex, every frame.
+
+## Perspective and the divide by w
+
+Far things look smaller. Under perspective, a point at depth z lands on the screen at roughly x / z. That is a division, and a matrix can only multiply and add. The fourth coordinate gets around this.
+
+The projection matrix copies the depth into the fourth coordinate, w. After the multiplication, the GPU divides x, y and z by w. This **perspective divide** is the step that shrinks distant points, and it is why homogeneous coordinates are called homogeneous: (2, 4, 6, 2) and (1, 2, 3, 1) name the same point.
+
+Step the widget from view to clip space and watch the frustum turn into a cube. The far end, which was wide, is squeezed the most, so the farthest house comes out smallest. The readout shows the tracked roof corner's four clip coordinates, then the same point after dividing by w.
+
+<Aside type="note" title="Depth is not spread evenly">
+
+After the divide, depth values crowd towards the far end of the cube. Half of the whole depth range is used up between the near plane and twice its distance, and everything beyond shares the rest. Setting the near plane too close, say 0.001 instead of 0.1, wastes most of it and makes distant surfaces flicker as they fight over which is in front, an artefact called **z-fighting**.
+
+</Aside>
+
+## Implementation
+
+```python
+import math
+
+def mat_mul(a, b):
+    return [[sum(a[r][k] * b[k][c] for k in range(4)) for c in range(4)] for r in range(4)]
+
+def translate(x, y, z):
+    return [[1, 0, 0, x], [0, 1, 0, y], [0, 0, 1, z], [0, 0, 0, 1]]
+
+def scale(s):
+    return [[s, 0, 0, 0], [0, s, 0, 0], [0, 0, s, 0], [0, 0, 0, 1]]
+
+def rotate_y(degrees):
+    c, s = math.cos(math.radians(degrees)), math.sin(math.radians(degrees))
+    return [[c, 0, s, 0], [0, 1, 0, 0], [-s, 0, c, 0], [0, 0, 0, 1]]
+
+def perspective(fov_y, aspect, near, far):
+    f = 1 / math.tan(math.radians(fov_y) / 2)
+    return [
+        [f / aspect, 0, 0, 0],
+        [0, f, 0, 0],
+        [0, 0, (far + near) / (near - far), 2 * far * near / (near - far)],
+        [0, 0, -1, 0],
+    ]
+
+def project(mvp, point, width, height):
+    x, y, z, w = (sum(mvp[r][k] * v for k, v in enumerate((*point, 1))) for r in range(4))
+    x, y, z = x / w, y / w, z / w                 # the perspective divide
+    return ((x + 1) / 2 * width, (1 - y) / 2 * height, z)
+
+model = mat_mul(translate(1, 0, -3), mat_mul(rotate_y(30), scale(2)))
+```
+
+## Costs
+
+<Ops items={[
+  ['Transform one point', 'O(1)', '16 multiplications for a 4×4 matrix'],
+  ['Combine two transforms', 'O(1)', '64 multiplications, done once per object'],
+  ['Transform a model', 'O(n)', 'n vertices, all with the same matrix'],
+  ['Invert a rigid transform', 'O(1)', 'transpose the rotation, negate the move'],
+]} />
+
+## Where it is used
+
+**Every 3D renderer.** Games, CAD tools and film renderers all carry vertices through model, view and projection matrices. GPUs have hardware built around 4×4 matrix-vector products.
+
+**Scene graphs.** A wheel is placed relative to its car, the car relative to the world. Each node stores its transform relative to its parent, and the world matrix of a wheel is the product down the chain. Move the car and the wheels follow for free.
+
+**Skeletal animation.** A character's skin is attached to a skeleton of bones, each with its own transform. Animating means changing the bone matrices, and each skin vertex is moved by a weighted blend of the bones near it.
+
+**2D graphics and the web.** The CSS `transform` property, SVG's `transform` attribute and the HTML canvas all use 3×3 homogeneous matrices. `matrix(a, b, c, d, e, f)` in CSS is exactly the top two rows.
+
+## Key takeaways
+
+- Scale and rotation are matrices. Adding a coordinate fixed at 1 makes translation a matrix too.
+- A chain of transforms multiplies down to one matrix, computed once and applied to every vertex.
+- Order matters. The usual order is scale, then rotate, then translate: `M = T · R · S`.
+- Vertices travel from model space to world space to view space to clip space to the screen, one matrix per step.
+- Perspective is a division by depth. The projection matrix puts depth in w, and the GPU divides by it.
