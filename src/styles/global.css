@@ -4886,3 +4886,91 @@ main {
 .plate-facts dd.sp-fact.word {
   letter-spacing: 0;
 }
+
+/* ---------- Routing ---------- */
+
+.ro-chart {
+  touch-action: manipulation;
+}
+
+.ro-link {
+  cursor: pointer;
+}
+
+.ro-link line {
+  stroke: var(--viz-stroke);
+  stroke-width: 2;
+}
+
+.ro-link line.hit {
+  stroke: transparent;
+  stroke-width: 16;
+}
+
+.ro-link rect {
+  fill: var(--surface);
+  stroke: var(--border);
+}
+
+.viz-svg .ro-link text {
+  fill: var(--text-2);
+  font: 600 11px var(--mono);
+}
+
+.ro-link.cut line:not(.hit) {
+  stroke: var(--series-2);
+  stroke-dasharray: 5 4;
+}
+
+.viz-svg .ro-link.cut text {
+  fill: var(--series-2);
+}
+
+.ro-link:hover line:not(.hit) {
+  stroke: var(--text);
+}
+
+.ro-hop line {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+.ro-hop polygon {
+  fill: var(--accent);
+}
+
+.ro-node {
+  cursor: pointer;
+}
+
+.ro-node circle {
+  fill: var(--viz-fill);
+  stroke: var(--viz-stroke);
+  stroke-width: 2;
+}
+
+.viz-svg .ro-node text {
+  font: 700 14px var(--font);
+}
+
+.viz-svg .ro-node .ro-dist {
+  fill: var(--text-2);
+  font: 600 11px var(--mono);
+}
+
+.ro-node.dest circle {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+}
+
+.ro-node.wrong circle {
+  stroke: var(--series-2);
+}
+
+.viz-svg .ro-node.wrong .ro-dist {
+  fill: var(--series-2);
+}
+
+.ro-node.none circle {
+  stroke-dasharray: 4 3;
+}
