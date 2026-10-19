@@ -234,6 +234,16 @@ They sit in a `.plate` and share the `.plate-*` panel classes.
   and plays access patterns through them a line at a time. "Draw to scale" moves each
   level to a distance proportional to its latency. Its `variant="hero"` plays each
   access pattern in turn, without controls.
+- `<LossLandscape />` drapes a non-convex loss over two parameters and drops balls on
+  it, which roll downhill by plain gradient descent or with momentum and turn green in
+  the lowest valley. Click the surface to drop one. The model is
+  `src/lib/loss-landscape.ts`.
+- `<DiskDrive />` spins a hard disk platter under a swinging arm and plays three
+  workloads (in-order, scattered, and scattered but reordered by the drive), splitting
+  the time into seeking, waiting and reading. It runs 120 times slower than a real
+  disk. The timing model is `src/lib/disk.ts`.
+
+Both take `variant="hero"` as well.
 
 The home page shows one of these figures beside the title, picked at random on each
 visit (never the same one twice in a row), and its link goes to the page the figure
