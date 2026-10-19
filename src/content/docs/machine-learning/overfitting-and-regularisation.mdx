@@ -1,0 +1,128 @@
+---
+description: A model overfits when it learns the noise in its training data along with the pattern, so it scores well on examples it has seen and badly on new ones. Holding data back for testing exposes it, and regularisation prevents it by penalising complexity.
+difficulty: intermediate
+---
+
+A student preparing for an exam can learn the subject, or memorise the answers to last year's paper. On last year's paper both get full marks. On this year's, only one of them does.
+
+Models face the same choice. The goal of learning is never to do well on the examples you were given. You already know those answers. The goal is to do well on examples you have not seen yet, which is called **generalisation**. A model that fits its training data closely but generalises badly has **overfitted**.
+
+## A model that is too flexible
+
+The widget below has ten training points. They were made by taking a smooth curve, `sin(πx)`, and adding random noise to each point, the way real measurements carry error. The model is a polynomial, fitted by [least squares](/machine-learning/linear-regression/), and you choose its degree.
+
+<OverfitDemo />
+
+Slide the degree up from 1.
+
+- **Degree 1** is a straight line. It cannot bend, so it misses the shape completely. This is **underfitting**: the model is too simple for the pattern.
+- **Degree 3** follows the rise and fall and ignores the jitter. Its error on the hollow test points, which it never saw, is only a little above its error on the training points.
+- **Degree 9** has ten coefficients for ten points, so it can pass through every one exactly. Training error is zero. Between the points it swings wildly, and on new data it is the worst model of all.
+
+The lower chart tells the whole story in two lines. Training error only ever falls as the model gets more flexible. Test error falls, bottoms out, and climbs again.
+
+## Bias and variance
+
+The two failures have names.
+
+A model with high **bias** makes strong assumptions that are wrong, such as "the relationship is a straight line". It would make the same mistake whatever training data you gave it.
+
+A model with high **variance** is so flexible that it bends to whatever data it is given, noise and all. Draw ten fresh noisy points and the degree 9 curve comes out completely different. The degree 3 curve barely changes.
+
+The expected error on new data splits into bias squared, plus variance, plus the noise that no model can remove. Simple models have high bias and low variance, flexible ones the reverse, and the best model sits at the bottom of the U where their sum is smallest.
+
+## Keeping score honestly
+
+Overfitting is invisible if you only measure a model on the data it was trained on. The fix is to hold some data back.
+
+| Set | Typical share | Used for |
+| --- | --- | --- |
+| Training | 60 to 80% | fitting the parameters |
+| Validation | 10 to 20% | choosing settings such as the degree or the penalty |
+| Test | 10 to 20% | one final, honest score, used once |
+
+The validation set is needed because choosing the degree is itself a kind of learning. Try fifty settings and keep the one with the best test score, and that score is now optimistic, since you have tuned to the test set. Keep the test set locked away until the end.
+
+When data is scarce, **k-fold cross-validation** splits it into k parts, trains k times with a different part held out each time, and averages the k scores. Every example gets used for both training and checking, just never at once.
+
+## Regularisation
+
+Instead of limiting the degree, you can allow a flexible model but charge it for using that flexibility. This is **regularisation**.
+
+Wild curves need huge coefficients that cancel each other out between the points. So add a penalty on the size of the coefficients to the loss.
+
+```
+loss = mean squared error + λ × (w₁² + w₂² + … + w_d²)
+```
+
+The model can still use high powers of x, but only when they reduce the error by more than they cost. The strength `λ` (lambda) sets the price. This is called **ridge regression**, or **L2 regularisation**, or **weight decay** in neural networks.
+
+Set the degree to 9 in the widget and try the penalties.
+
+| λ | Degree 9 test error | What it does |
+| --- | --- | --- |
+| 0 | about 4.8 | no penalty: interpolates the noise |
+| 0.0001 | 0.10 | a tiny charge tames the swings |
+| 0.01 | 0.10 | smoother still |
+| 0.1 | 0.20 | too strong: the curve is flattened and underfits |
+
+So λ is another knob with a U-shaped test error, picked using the validation set. The advantage over choosing the degree is that it is continuous, and it works the same way for models where "degree" means nothing, such as a neural network with millions of weights.
+
+A penalty on the absolute values instead, |w₁| + |w₂| + …, is **L1 regularisation** or the **lasso**. It tends to push unhelpful weights to exactly zero, so it also picks out which features matter.
+
+## Other defences
+
+**More data.** Noise averages out as examples pile up, and the flexible curve has less room to wiggle between points. This is the most reliable cure when it is available.
+
+**Early stopping.** When training by [gradient descent](/machine-learning/gradient-descent/), watch the validation error as you go and stop when it starts to rise. The weights have not had time to grow large enough to fit the noise.
+
+**Dropout.** In a [neural network](/machine-learning/neural-networks/), randomly switch off a fraction of the units on each training step. No unit can rely on any particular other unit being there, so the network learns more robust features.
+
+**Data augmentation.** For images, train on flipped, cropped and colour-shifted copies of each picture. The model sees more variety without anyone collecting more photographs.
+
+<Aside title="Big models that do not overfit">
+
+By the bias-variance picture, a network with far more weights than training examples should overfit badly. Modern networks often do not. Past the point where they can fit the training set exactly, test error frequently falls again, a pattern called **double descent**. Gradient descent, started from small weights, seems to favour simple solutions among the many that fit, acting as a regulariser of its own. Exactly why is still an active research question.
+
+</Aside>
+
+## Costs
+
+<Ops items={[
+  ['Ridge regression, d features', 'O(nd² + d³)', 'same as plain least squares'],
+  ['k-fold cross-validation', 'k × training cost', 'usually k = 5 or 10'],
+  ['Early stopping', 'free', 'one extra evaluation per epoch'],
+]} />
+
+## Implementation
+
+```python
+import numpy as np
+
+def ridge_polynomial(xs, ys, degree, lam):
+    X = np.vander(xs, degree + 1, increasing=True)  # columns 1, x, x², ...
+    penalty = lam * len(xs) * np.eye(degree + 1)
+    penalty[0, 0] = 0                                # leave the constant free
+    return np.linalg.solve(X.T @ X + penalty, X.T @ ys)
+```
+
+Adding λ to the diagonal also makes XᵀX easier to invert, which was its original purpose when it was introduced in the 1970s.
+
+## Where it is used
+
+**Every trained model.** Holding back a test set is not optional. A model reported without one has not really been measured.
+
+**Neural networks.** Weight decay, dropout, data augmentation and early stopping are standard in nearly every training recipe.
+
+**Competitions and benchmarks.** Public leaderboards hide the real test set and score each team on it only at the end, because teams that see their test score every day end up tuning to it.
+
+**Statistics and science.** Ridge and lasso are standard for problems with more variables than samples, such as finding which of 20,000 genes predict a disease from a few hundred patients.
+
+## Key takeaways
+
+- The aim is to do well on new data. Training error alone cannot show that.
+- Too simple a model underfits: high bias. Too flexible a model fits the noise: high variance.
+- Training error falls as models get more flexible. Test error falls and then rises.
+- Split data into training, validation and test sets, and use the test set once.
+- Regularisation adds a price for large weights to the loss, letting a flexible model stay smooth.
+- More data, early stopping, dropout and augmentation are other ways to stop a model memorising.
