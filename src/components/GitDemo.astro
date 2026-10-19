@@ -1,0 +1,130 @@
+---
+// A small Git repository. Commit, branch, switch, merge and rebase, and watch
+// the commit graph and the branch labels move. Click a commit to see the
+// objects behind it: the commit, its tree and the blobs it points to.
+import { gitSvg, Repo } from '../lib/engineering';
+
+const repo = new Repo();
+const { markup, width, height } = gitSvg(repo, repo.current.id);
+---
+
+<git-demo class="playground git-demo">
+  <div class="viz-scroll git-scroll">
+    <svg class="viz-svg git-chart" viewBox={`0 0 ${width} ${height}`} width={width} height={height} role="img" aria-label="Commits as circles joined to their parents, with branch labels pointing at commits" set:html={markup} />
+  </div>
+  <p class="tries">
+    <button type="button" data-act="commit">Commit</button>
+    <button type="button" data-act="branch">New branch</button>
+    <span class="git-switch" data-out="switch"></span>
+  </p>
+  <p class="tries" data-out="others"></p>
+  <div class="git-objects" data-out="objects" aria-live="polite"></div>
+  <p class="hint" data-out="status" aria-live="polite">Two commits on main. Make a branch, commit on it, then switch back and commit on main too, so the history forks.</p>
+</git-demo>
+
+<script>
+  import { gitSvg, objectsOf, Repo } from '../lib/engineering';
+
+  const names = ['feature', 'fix', 'experiment'];
+
+  class GitDemo extends HTMLElement {
+    connectedCallback() {
+      let repo = new Repo();
+      let selected = repo.current.id;
+      const svg = this.querySelector('svg')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+
+      const button = (text: string, data: Record<string, string>, pressed?: boolean) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = text;
+        for (const [k, v] of Object.entries(data)) b.dataset[k] = v;
+        if (pressed !== undefined) b.setAttribute('aria-pressed', String(pressed));
+        return b;
+      };
+
+      const render = (status?: string) => {
+        const { markup, width, height } = gitSvg(repo, selected);
+        svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        svg.setAttribute('width', String(width));
+        svg.setAttribute('height', String(height));
+        svg.innerHTML = markup;
+        svg.parentElement!.scrollLeft = svg.parentElement!.scrollWidth;
+
+        const branches = Object.keys(repo.branches);
+        const label = document.createTextNode('Switch to: ');
+        out('switch').replaceChildren(label, ...branches.map((b) => button(b, { switchTo: b }, b === repo.head)));
+        const others = branches.filter((b) => b !== repo.head);
+        out('others').replaceChildren(
+          ...(others.length
+            ? [
+                document.createTextNode(`Into ${repo.head}: `),
+                ...others.map((b) => button(`merge ${b}`, { merge: b })),
+                ...others.map((b) => button(`rebase onto ${b}`, { rebase: b })),
+              ]
+            : []),
+        );
+        (this.querySelector('[data-act="branch"]') as HTMLButtonElement).disabled = branches.length > names.length;
+
+        const { commit, files } = objectsOf(repo, selected);
+        const parent = commit.parents.length ? commit.parents.map((p) => `<span class="git-hash">${p}</span>`).join(' ') : '<i>none, the first commit</i>';
+        out('objects').innerHTML =
+          `<p><b>commit <span class="git-hash">${commit.id}</span></b>${commit.orphan ? ' <em>(no branch reaches it any more)</em>' : ''}</p>` +
+          `<ul><li>tree <span class="git-hash">${commit.tree}</span></li><li>parent ${parent}</li><li>message “${commit.message}”</li></ul>` +
+          `<p><b>tree <span class="git-hash">${commit.tree}</span></b></p><ul>` +
+          files.map((f) => `<li class="${f.shared ? 'shared' : 'changed'}">blob <span class="git-hash">${f.blob}</span> ${f.name}${f.shared ? ' <small>same blob as the parent</small>' : commit.parents.length ? ' <small>new blob</small>' : ''}</li>`).join('') +
+          `</ul>`;
+        if (status) out('status').textContent = status;
+      };
+
+      svg.addEventListener('click', (event) => {
+        const node = (event.target as Element).closest<SVGGElement>('[data-commit]');
+        if (!node) return;
+        selected = node.dataset.commit!;
+        render('The objects behind that commit. Files it did not change point at the very same blobs as its parent, so they are stored once.');
+      });
+
+      this.addEventListener('click', (event) => {
+        const b = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
+        if (!b) return;
+        const d = b.dataset;
+        if (d.act === 'commit') {
+          const c = repo.commit();
+          selected = c.id;
+          render(`New commit ${c.id} on ${repo.head}: “${c.message}”. Its id is a hash of its tree, its parent and its message, so changing anything in history would change every id after it.`);
+        } else if (d.act === 'branch') {
+          const name = names.find((n) => !repo.branches[n])!;
+          repo.branch(name);
+          render(`Created ${name} and switched to it. A branch is just a name for a commit. Making one wrote a single commit id into a small file, and copied nothing else.`);
+        } else if (d.switchTo) {
+          repo.switchTo(d.switchTo);
+          selected = repo.current.id;
+          render(`HEAD now points at ${repo.head}. New commits will move that label forward.`);
+        } else if (d.merge) {
+          const { kind, conflicts } = repo.merge(d.merge);
+          selected = repo.current.id;
+          render(
+            kind === 'up to date'
+              ? `${repo.head} already contains everything on ${d.merge}. Nothing to do.`
+              : kind === 'fast-forward'
+                ? `Fast-forward: ${repo.head} had no commits of its own since ${d.merge} split off, so its label simply moved up to ${d.merge}'s commit. No new commit.`
+                : `A merge commit with two parents. Git compared both sides with their common ancestor and took each file from whichever side changed it.` +
+                  (conflicts.length ? ` Both sides changed ${conflicts.join(' and ')}, which is a conflict a person would have to resolve.` : ''),
+          );
+        } else if (d.rebase) {
+          const copied = repo.rebase(d.rebase);
+          selected = repo.current.id;
+          render(
+            copied
+              ? `Rebased: ${copied} commit${copied > 1 ? 's were' : ' was'} replayed on top of ${d.rebase} as new commits with new ids. The originals, faded, are no longer on any branch. History is now a straight line.`
+              : `Nothing to rebase: ${repo.head} has no commits of its own beyond ${d.rebase}.`,
+          );
+        }
+      });
+
+      render();
+    }
+  }
+
+  customElements.define('git-demo', GitDemo);
+</script>

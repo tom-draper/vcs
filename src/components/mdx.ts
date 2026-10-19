@@ -71,6 +71,9 @@ import SubsetSumDemo from './SubsetSumDemo.astro';
 import TuringDemo from './TuringDemo.astro';
 import AllocatorDemo from './AllocatorDemo.astro';
 import Aside from './Aside.astro';
+import GitDemo from './GitDemo.astro';
+import TestDemo from './TestDemo.astro';
+import BuildDemo from './BuildDemo.astro';
 import BirthdayDemo from './BirthdayDemo.astro';
 import BitsDemo from './BitsDemo.astro';
 import BloomDemo from './BloomDemo.astro';
@@ -214,6 +217,9 @@ export const components = {
   RegisterDemo,
   a: Link,
   Aside,
+  GitDemo,
+  TestDemo,
+  BuildDemo,
   BirthdayDemo,
   BitsDemo,
   BloomDemo,

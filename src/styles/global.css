@@ -5302,3 +5302,299 @@ main {
 .el-legend .ok { --key: var(--series-3); }
 .el-legend .coordinator { --key: var(--accent); }
 .el-legend .lost::before { border-top-style: dashed; --key: var(--series-1); }
+
+/* ---------- Version control ---------- */
+
+.git-scroll {
+  text-align: left;
+}
+
+.git-chart {
+  display: block;
+  max-width: none;
+}
+
+.git-edge {
+  fill: none;
+  stroke: var(--viz-stroke);
+  stroke-width: 2.5;
+}
+
+.git-edge.orphan {
+  stroke-dasharray: 4 4;
+  opacity: 0.4;
+}
+
+.git-commit {
+  cursor: pointer;
+}
+
+.git-commit circle {
+  fill: var(--viz-fill);
+  stroke: var(--series-1);
+  stroke-width: 3;
+}
+
+.git-commit.on circle {
+  fill: var(--series-1);
+}
+
+.git-commit.orphan {
+  opacity: 0.35;
+}
+
+.viz-svg .git-id {
+  fill: var(--text-2);
+  font: 10.5px var(--mono);
+}
+
+.git-ref rect {
+  fill: var(--alt-soft);
+  stroke: var(--alt);
+}
+
+.viz-svg .git-ref text {
+  fill: var(--text);
+  font: 600 11px var(--mono);
+}
+
+.git-ref.head rect {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+}
+
+.git-switch {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: 0.6rem;
+}
+
+.git-objects {
+  margin-top: 0.8rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 0.5rem;
+  background: var(--bg);
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.git-objects p {
+  margin: 0.3rem 0 0.1rem !important;
+}
+
+.git-objects ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  list-style: none;
+}
+
+.git-hash {
+  color: var(--series-1);
+  font: 600 0.82rem var(--mono);
+}
+
+.git-objects li.shared {
+  color: var(--text-2);
+}
+
+.git-objects small,
+.git-objects em {
+  color: var(--text-3);
+}
+
+.git-demo button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ---------- Testing ---------- */
+
+.ts-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.25rem;
+}
+
+@media (max-width: 44rem) {
+  .ts-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.ts-head {
+  margin: 0 0 0.4rem !important;
+  color: var(--text-2);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.ts-code {
+  margin: 0 0 1rem;
+  padding: 0.5rem 0;
+  border-radius: 0.5rem;
+  background: var(--bg);
+  font-size: 0.8rem;
+  list-style: none;
+  counter-reset: line;
+}
+
+.ts-code li {
+  padding: 0 0.6rem 0 0.4rem;
+  border-left: 4px solid transparent;
+  white-space: pre;
+  counter-increment: line;
+}
+
+.ts-code li::before {
+  content: counter(line);
+  display: inline-block;
+  width: 1.4rem;
+  color: var(--text-3);
+  font: 0.75rem var(--mono);
+}
+
+.ts-code li.run {
+  border-left-color: var(--series-3);
+  background: color-mix(in srgb, var(--series-3) 12%, transparent);
+}
+
+.prose .ts-code code,
+.prose .ts-mutants code {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.ts-code code {
+  padding: 0;
+  background: none;
+  font-size: 0.8rem;
+}
+
+.ts-tests {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.playground .ts-tests button {
+  justify-content: flex-start;
+  font: 600 0.78rem var(--mono);
+}
+
+.playground .ts-tests button[aria-pressed='true'] {
+  border-color: var(--series-3);
+  background: color-mix(in srgb, var(--series-3) 14%, var(--bg));
+}
+
+.ts-mutants {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8rem;
+}
+
+.ts-mutants li {
+  display: grid;
+  gap: 0.1rem;
+  margin-bottom: 0.4rem;
+  padding: 0.35rem 0.6rem;
+  border-left: 4px solid;
+  border-radius: 0.3rem;
+  background: var(--bg);
+}
+
+.ts-mutants li.killed {
+  border-color: var(--series-3);
+}
+
+.ts-mutants li.survived {
+  border-color: var(--series-2);
+  background: color-mix(in srgb, var(--series-2) 12%, var(--bg));
+}
+
+.ts-mutants code {
+  padding: 0;
+  background: none;
+  font-size: 0.78rem;
+  white-space: pre;
+}
+
+.ts-mutants span {
+  color: var(--text-2);
+  font-size: 0.75rem;
+}
+
+.ts-mutants li.survived span {
+  color: var(--series-2);
+  font-weight: 700;
+}
+
+/* ---------- Build systems ---------- */
+
+.bd-edge {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1.5;
+}
+
+.bd-edge.hot {
+  stroke: var(--series-1);
+  stroke-width: 2;
+}
+
+.bd-node rect {
+  fill: var(--viz-fill);
+  stroke: var(--viz-stroke);
+  stroke-width: 1.5;
+}
+
+.viz-svg .bd-node text {
+  font: 600 12px var(--mono);
+}
+
+.bd-node.source {
+  cursor: pointer;
+}
+
+.bd-node.source:hover rect {
+  stroke: var(--text);
+}
+
+.bd-node.edited rect {
+  fill: var(--alt-soft);
+  stroke: var(--alt);
+  stroke-width: 2;
+}
+
+.bd-node.rebuilt rect {
+  fill: color-mix(in srgb, var(--series-1) 18%, var(--surface));
+  stroke: var(--series-1);
+  stroke-width: 2;
+}
+
+.bd-node.same rect {
+  fill: var(--surface);
+  stroke: var(--series-1);
+  stroke-dasharray: 4 3;
+  stroke-width: 2;
+}
+
+.bd-schedule {
+  margin-top: 0.6rem;
+  padding: 0.6rem 1rem;
+}
+
+.bd-job rect {
+  fill: var(--series-1);
+}
+
+.bd-job.same rect {
+  fill: color-mix(in srgb, var(--series-1) 40%, var(--surface));
+}
+
+.viz-svg .bd-job text {
+  fill: #fff;
+  font: 600 10px var(--mono);
+}

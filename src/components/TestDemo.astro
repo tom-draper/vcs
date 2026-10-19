@@ -1,0 +1,93 @@
+---
+// A small function, a set of tests to switch on and off, the lines those tests
+// run, and a set of mutants: copies of the function with one small bug each.
+// A mutant is killed if some test fails on it.
+import { mutants, shippingSource, testCases, testReport } from '../lib/engineering';
+
+const selected = [0, 1, 2, 3];
+const report = testReport(selected);
+const pct = (x: number) => `${Math.round(x * 100)}%`;
+---
+
+<test-demo class="playground test-demo">
+  <div class="ts-grid">
+    <div>
+      <p class="ts-head">Code, with lines the tests run marked</p>
+      <ol class="ts-code" data-out="code">
+        {shippingSource.map((line, i) => <li class={report.covered.has(i) ? 'run' : ''}><code>{line}</code></li>)}
+      </ol>
+      <p class="ts-head">Tests</p>
+      <div class="ts-tests">
+        {
+          testCases.map((t, i) => (
+            <button type="button" data-test={i} aria-pressed={selected.includes(i) ? 'true' : 'false'}>
+              shipping({t.total}, {t.member ? 'True' : 'False'}) == {t.expect}
+            </button>
+          ))
+        }
+      </div>
+    </div>
+    <div>
+      <p class="ts-head">Mutants</p>
+      <ul class="ts-mutants" data-out="mutants">
+        {
+          report.results.map((m) => (
+            <li class={m.killedBy ? 'killed' : 'survived'}>
+              <code>{m.change}</code>
+              <span>{m.killedBy ? `killed by “${m.killedBy}”` : 'survived'}</span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </div>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Line coverage</dt><dd data-out="coverage">{pct(report.coverage)}</dd></div>
+    <div><dt>Mutants killed</dt><dd data-out="score">{report.results.filter((r) => r.killedBy).length} of {mutants.length}</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">Four tests run every line: 100% coverage. Yet two mutants survive. Find the tests that kill them.</p>
+</test-demo>
+
+<script>
+  import { mutants, testReport } from '../lib/engineering';
+
+  class TestDemo extends HTMLElement {
+    connectedCallback() {
+      const selected = new Set([0, 1, 2, 3]);
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+
+      const render = () => {
+        const report = testReport([...selected].sort());
+        this.querySelectorAll('[data-out="code"] li').forEach((li, i) => li.classList.toggle('run', report.covered.has(i)));
+        this.querySelectorAll('[data-out="mutants"] li').forEach((li, i) => {
+          const r = report.results[i];
+          li.className = r.killedBy ? 'killed' : 'survived';
+          li.querySelector('span')!.textContent = r.killedBy ? `killed by “${r.killedBy}”` : 'survived';
+        });
+        const killed = report.results.filter((r) => r.killedBy).length;
+        out('coverage').textContent = `${Math.round(report.coverage * 100)}%`;
+        out('score').textContent = `${killed} of ${mutants.length}`;
+        const survivors = report.results.filter((r) => !r.killedBy);
+        out('status').textContent = !selected.size
+          ? 'No tests: nothing is run, and every mutant survives. Anything could be wrong.'
+          : killed === mutants.length
+            ? `Every mutant is killed with ${selected.size} tests. Each small change to the code makes at least one test fail, so these tests would notice a real slip of the same kind.`
+            : report.coverage === 1
+              ? `100% line coverage, but ${survivors.length} mutant${survivors.length > 1 ? 's' : ''} survive${survivors.length > 1 ? '' : 's'}: ${survivors.map((s) => s.change).join('; ')}. Every line runs, yet no test would notice if ${survivors.length > 1 ? 'these were' : 'this was'} wrong.`
+              : `${Math.round(report.coverage * 100)}% of lines run. Mutants on lines no test reaches always survive.`;
+      };
+
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-test]');
+        if (!button) return;
+        const i = Number(button.dataset.test);
+        if (selected.has(i)) selected.delete(i);
+        else selected.add(i);
+        button.setAttribute('aria-pressed', String(selected.has(i)));
+        render();
+      });
+    }
+  }
+
+  customElements.define('test-demo', TestDemo);
+</script>

@@ -1,0 +1,122 @@
+---
+// A small C project as a dependency graph. Edit a source file, then build, and
+// see which targets are rebuilt, with timestamps or with content hashes, and
+// how the jobs are spread across workers.
+import { buildGraphSvg, buildView, freshState } from '../lib/engineering';
+
+const state = freshState();
+---
+
+<build-demo class="playground build-demo">
+  <div class="viz-scroll">
+    <svg class="viz-svg chart bd-chart" viewBox={`0 0 ${buildView.width} ${buildView.height}`} role="img" aria-label="Source files on the left, object files in the middle and two programs on the right, with arrows from each file to what is built from it" set:html={buildGraphSvg(state, [], new Set())} />
+  </div>
+  <div class="viz-scroll bd-schedule">
+    <svg class="viz-svg chart" viewBox="0 0 580 40" role="img" aria-label="The build's jobs on a timeline, one row per worker"></svg>
+  </div>
+  <p class="tries">
+    <button type="button" data-act="build">Build</button>
+    <button type="button" data-act="clean">Clean build</button>
+    Edit:
+    <button type="button" data-kind="code" aria-pressed="true">code</button>
+    <button type="button" data-kind="comment" aria-pressed="false">a comment</button>
+  </p>
+  <p class="tries">
+    Decide what is stale by:
+    <button type="button" data-check="timestamps" aria-pressed="true">timestamps</button>
+    <button type="button" data-check="hashes" aria-pressed="false">content hashes</button>
+    Workers:
+    {[1, 2, 4].map((n) => <button type="button" data-workers={n} aria-pressed={n === 2 ? 'true' : 'false'}>{n}</button>)}
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Jobs run</dt><dd data-out="jobs">–</dd></div>
+    <div><dt>Work</dt><dd data-out="serial">–</dd></div>
+    <div><dt>Time taken</dt><dd data-out="time">–</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">Nothing has been built yet. Press Build for a full build, then click a source file to edit it and build again.</p>
+</build-demo>
+
+<script>
+  import { build, buildGraphSvg, edit, freshState, scheduleSvg, sources, type Check, type Job } from '../lib/engineering';
+
+  const list = (items: string[]) => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
+
+  class BuildDemo extends HTMLElement {
+    connectedCallback() {
+      let state = freshState();
+      let check: Check = 'timestamps';
+      let workers = 2;
+      let kind: 'code' | 'comment' = 'code';
+      let jobs: Job[] = [];
+      const edited = new Set<string>();
+      let codeEdits = 0;
+      const [graph, schedule] = this.querySelectorAll('svg');
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+
+      const draw = (time = 0) => {
+        graph.innerHTML = buildGraphSvg(state, jobs, edited);
+        const { markup, height } = scheduleSvg(jobs, workers, time);
+        schedule.setAttribute('viewBox', `0 0 580 ${height}`);
+        schedule.innerHTML = markup;
+      };
+
+      const run = (label: string) => {
+        const result = build(state, check, workers);
+        jobs = result.jobs;
+        draw(result.time);
+        out('jobs').textContent = String(jobs.length);
+        out('serial').textContent = `${result.serial} s`;
+        out('time').textContent = `${result.time} s on ${workers} worker${workers > 1 ? 's' : ''}`;
+        const same = jobs.filter((j) => j.unchanged).map((j) => j.name);
+        out('status').textContent = !jobs.length
+          ? 'Nothing to do: every output is newer than, or built from the same contents as, its inputs. Doing nothing quickly is the main job of a build system.'
+          : label === 'clean'
+            ? `A clean build runs all ${jobs.length} jobs. Jobs that do not depend on each other run side by side; the link steps must wait for the object files they need.`
+            : same.length
+              ? `${list(same)} ${same.length > 1 ? 'were' : 'was'} recompiled, but came out byte-for-byte identical, so nothing that depends on ${same.length > 1 ? 'them' : 'it'} needs rebuilding. This is early cutoff, and only content hashes allow it.`
+              : check === 'timestamps' && edited.size && !codeEdits
+                ? `Only a comment changed, but timestamps cannot tell: every file downstream is newer than its outputs, so all of them were rebuilt.`
+                : `Rebuilt ${list(jobs.map((j) => j.name))}: exactly the targets downstream of the edit, in dependency order.`;
+        edited.clear();
+        codeEdits = 0;
+      };
+
+      graph.addEventListener('click', (event) => {
+        const node = (event.target as Element).closest<SVGGElement>('[data-target]');
+        const name = node?.dataset.target;
+        if (!name || !sources.includes(name)) return;
+        edit(state, name, kind);
+        edited.add(name);
+        if (kind === 'code') codeEdits++;
+        jobs = [];
+        draw();
+        out('status').textContent = `Edited ${kind === 'comment' ? 'a comment in ' : ''}${name}. Press Build to bring everything up to date.`;
+      });
+
+      this.addEventListener('click', (event) => {
+        const b = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
+        if (!b) return;
+        const d = b.dataset;
+        if (d.act === 'build') run('build');
+        else if (d.act === 'clean') {
+          state = freshState();
+          edited.clear();
+          run('clean');
+        } else if (d.kind) {
+          kind = d.kind as 'code' | 'comment';
+          this.querySelectorAll('[data-kind]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+        } else if (d.check) {
+          check = d.check as Check;
+          this.querySelectorAll('[data-check]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+        } else if (d.workers) {
+          workers = Number(d.workers);
+          this.querySelectorAll('[data-workers]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+          out('status').textContent = `${workers} worker${workers > 1 ? 's' : ''}. Press Clean build to compare how long a full build takes.`;
+        }
+      });
+      draw();
+    }
+  }
+
+  customElements.define('build-demo', BuildDemo);
+</script>
