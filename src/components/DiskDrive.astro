@@ -1,0 +1,188 @@
+---
+// A hard disk in 3D. Pick a workload and watch the arm seek to each track and
+// wait for each sector to come round, with the time split into seeking,
+// waiting and reading.
+import { workloads, type Workload } from '../lib/disk';
+
+interface Props {
+  /** `hero` plays each workload in turn with no controls, for the home page. */
+  variant?: 'figure' | 'hero';
+}
+
+const { variant = 'figure' } = Astro.props;
+const first: Workload = 'random';
+---
+
+<disk-drive class:list={['plate', 'disk-drive', variant]} data-variant={variant}>
+  <div class="plate-stage">
+    <div
+      class="plate-canvas"
+      role="img"
+      aria-label="A hard disk platter spinning under an arm that swings between tracks. The sectors waiting to be read are marked on the platter, and the head reads each one as it passes underneath."
+    >
+    </div>
+    <div class="plate-labels" aria-hidden="true"></div>
+    {variant === 'figure' && <p class="plate-hint">Drag to turn. Numbers show the order the reads are served in.</p>}
+    <p class="plate-fallback" hidden>This figure needs WebGL to draw. The controls and readout still work.</p>
+  </div>
+
+  {
+    variant === 'figure' ? (
+      <div class="plate-panel">
+        <div class="plate-col">
+          <div class="plate-group" role="group" aria-label="Workload">
+            <span class="plate-caption">Workload</span>
+            <div class="plate-buttons">
+              {(Object.keys(workloads) as Workload[]).map((id) => (
+                <button type="button" data-workload={id} aria-pressed={String(id === first)}>
+                  {workloads[id].name}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p class="plate-note" data-out="summary">{workloads[first].summary}</p>
+          <div class="plate-buttons">
+            <button type="button" class="primary" data-act="run">Run again</button>
+          </div>
+        </div>
+
+        <div class="plate-col">
+          <dl class="plate-facts">
+            <div><dt>Reads done</dt><dd data-out="done">0</dd></div>
+            <div><dt>Disk time</dt><dd data-out="elapsed">0.0 ms</dd></div>
+          </dl>
+          <div class="plate-group">
+            <span class="plate-caption">Where the time went</span>
+            <div class="disk-split" data-out="split" aria-hidden="true"><i class="seek"></i><i class="wait"></i><i class="read"></i></div>
+            <dl class="plate-facts disk-legend">
+              <div class="seek"><dt>Seeking</dt><dd data-out="seek">0.0 ms</dd></div>
+              <div class="wait"><dt>Waiting to turn</dt><dd data-out="wait">0.0 ms</dd></div>
+              <div class="read"><dt>Reading</dt><dd data-out="read">0.0 ms</dd></div>
+            </dl>
+          </div>
+        </div>
+        <p class="plate-verdict" data-out="verdict" data-tone="neutral" aria-live="polite">
+          The platter turns at 7,200 revolutions per minute: one turn every 8.3 ms.
+        </p>
+      </div>
+    ) : (
+      <p class="plate-verdict hero-caption" data-out="verdict" data-tone="neutral">A hard disk, slowed down 120 times.</p>
+    )
+  }
+</disk-drive>
+
+<script>
+  import { plan, START_TRACK, totals, verdict, workloads, type Op, type Workload } from '../lib/disk';
+  import type { DiskScene } from '../lib/disk-scene';
+
+  const reel: Workload[] = ['random', 'reordered', 'sequential'];
+
+  class DiskDrive extends HTMLElement {
+    private workload: Workload = 'random';
+    private ops: Op[] = [];
+    private scene?: DiskScene;
+    private hero = false;
+    private shown = '';
+    private finishedAt = 0;
+    private round = 0;
+
+    connectedCallback() {
+      this.hero = this.dataset.variant === 'hero';
+      const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      this.addEventListener('click', (event) => {
+        const set = (event.target as HTMLElement).closest('button')?.dataset;
+        if (!set) return;
+        if (set.workload) this.start(set.workload as Workload);
+        else if (set.act === 'run') this.start(this.workload);
+      });
+
+      // Three.js is only fetched once the figure is close to the screen.
+      const near = new IntersectionObserver(
+        async ([entry]) => {
+          if (!entry.isIntersecting) return;
+          near.disconnect();
+          try {
+            const { DiskScene } = await import('../lib/disk-scene');
+            this.scene = new DiskScene(
+              this.querySelector<HTMLElement>('.plate-canvas')!,
+              this.querySelector<HTMLElement>('.plate-labels')!,
+              { reducedMotion, interactive: !this.hero, onTime: (ms) => this.tick(ms) },
+            );
+            this.start(this.hero ? reel[0] : this.workload);
+          } catch {
+            this.querySelector<HTMLElement>('.plate-fallback')!.hidden = false;
+            this.classList.add('no-webgl');
+            this.start(this.workload);
+          }
+        },
+        { rootMargin: '200px' },
+      );
+      near.observe(this);
+    }
+
+    disconnectedCallback() {
+      this.scene?.dispose();
+    }
+
+    private start(workload: Workload) {
+      this.workload = workload;
+      this.finishedAt = 0;
+      const now = this.scene?.now() ?? 0;
+      this.ops = plan(workload, now);
+      this.scene?.run(this.ops, START_TRACK);
+      this.querySelectorAll<HTMLElement>('[data-workload]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.workload === workload)));
+      const summary = this.querySelector('[data-out="summary"]');
+      if (summary) summary.textContent = workloads[workload].summary;
+      // Without WebGL there is nothing to watch, so show the finished run.
+      if (!this.scene) this.tick(this.ops.at(-1)!.readEnd);
+    }
+
+    /** Update the readouts for the disk's time, `ms`. Called every frame. */
+    private tick(ms: number) {
+      const end = this.ops.at(-1)?.readEnd ?? 0;
+      const sum = totals(this.ops, ms);
+      const key = `${this.workload}:${sum.done}:${sum.elapsed.toFixed(1)}`;
+      if (key === this.shown) return this.loop(ms >= end);
+      this.shown = key;
+
+      const out = (name: string) => this.querySelector<HTMLElement>(`[data-out="${name}"]`);
+      const set = (name: string, text: string) => {
+        const el = out(name);
+        if (el) el.textContent = text;
+      };
+      set('done', `${sum.done} of ${this.ops.length}`);
+      set('elapsed', `${sum.elapsed.toFixed(1)} ms`);
+      set('seek', `${sum.seek.toFixed(1)} ms`);
+      set('wait', `${sum.wait.toFixed(1)} ms`);
+      set('read', `${sum.read.toFixed(1)} ms`);
+      const split = out('split');
+      if (split && sum.elapsed > 0) {
+        const [seek, wait, read] = split.querySelectorAll('i');
+        seek.style.flexGrow = String(sum.seek);
+        wait.style.flexGrow = String(sum.wait);
+        read.style.flexGrow = String(sum.read);
+      }
+
+      const v = out('verdict')!;
+      if (ms >= end) {
+        v.textContent = this.hero ? `${workloads[this.workload].name}. ${verdict(this.workload, sum)}` : verdict(this.workload, sum);
+        v.dataset.tone = this.workload === 'sequential' ? 'good' : this.workload === 'reordered' ? 'warn' : 'bad';
+      } else {
+        v.textContent = this.hero ? `${workloads[this.workload].name}…` : `Serving read ${Math.min(sum.done + 1, this.ops.length)} of ${this.ops.length}…`;
+        v.dataset.tone = 'neutral';
+      }
+      this.loop(ms >= end);
+    }
+
+    /** In the hero, move on to the next workload a few seconds after one finishes. */
+    private loop(finished: boolean) {
+      if (!this.hero || !finished || !this.scene) return;
+      const now = performance.now();
+      if (!this.finishedAt) this.finishedAt = now;
+      else if (now - this.finishedAt > 3500) this.start(reel[++this.round % reel.length]);
+    }
+  }
+
+  customElements.define('disk-drive', DiskDrive);
+</script>
