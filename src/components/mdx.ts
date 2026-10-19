@@ -28,6 +28,7 @@ import KMeansDemo from './KMeansDemo.astro';
 import DecisionTreeDemo from './DecisionTreeDemo.astro';
 import NetworkDemo from './NetworkDemo.astro';
 import BackpropDemo from './BackpropDemo.astro';
+import AttentionDemo from './AttentionDemo.astro';
 import CapDemo from './CapDemo.astro';
 import ClockDemo from './ClockDemo.astro';
 import CrdtDemo from './CrdtDemo.astro';
@@ -150,6 +151,7 @@ export const components = {
   DecisionTreeDemo,
   NetworkDemo,
   BackpropDemo,
+  AttentionDemo,
   CapDemo,
   ClockDemo,
   CrdtDemo,

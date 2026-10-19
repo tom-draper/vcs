@@ -1,0 +1,110 @@
+---
+// One attention head over a short sentence. Each row of the grid is a token
+// asking "which other tokens matter to me?", and the shading is the softmax
+// weight it gives each one. Pick a row to see its scores and weights.
+import { attention, attentionSize, attentionSvg } from '../lib/learning';
+
+const options = { ending: 'tired' as const, causal: false, scaled: true };
+const { words, weights } = attention(options);
+const selected = words.indexOf('it');
+const size = attentionSize(words.length);
+---
+
+<attention-demo class="playground attention-demo">
+  <div class="at-pair">
+    <div class="viz-scroll">
+      <svg class="viz-svg chart at-chart" viewBox={`0 0 ${size.width} ${size.height}`} role="img" aria-label="A grid of attention weights. Each row is a word, and the shading in each column shows how much that word attends to the column's word." set:html={attentionSvg(weights, words, selected)} />
+    </div>
+    <div class="at-detail">
+      <p class="at-title">Where <b data-out="word">it</b> looks</p>
+      <ol class="at-bars" data-out="bars"></ol>
+    </div>
+  </div>
+  <p class="tries">
+    Last word:
+    <button type="button" data-ending="tired" aria-pressed="true">tired</button>
+    <button type="button" data-ending="wide" aria-pressed="false">wide</button>
+  </p>
+  <p class="tries">
+    <button type="button" data-opt="causal" aria-pressed="false">Causal mask</button>
+    <button type="button" data-opt="scaled" aria-pressed="true">Divide by √d</button>
+  </p>
+  <p class="hint" data-out="status" aria-live="polite">Each row is one word's query compared against every word's key. Click a row. "it" puts most of its weight on "animal", because the animal is what was tired.</p>
+</attention-demo>
+
+<script>
+  import { attention, attentionSize, attentionSvg, type AttentionOptions, type Ending } from '../lib/learning';
+
+  class AttentionDemo extends HTMLElement {
+    connectedCallback() {
+      const options: AttentionOptions = { ending: 'tired', causal: false, scaled: true };
+      let selected = 7;
+      const svg = this.querySelector('svg')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+
+      const render = (status?: string) => {
+        const { words, scores, weights } = attention(options);
+        const { width, height } = attentionSize(words.length);
+        svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        svg.innerHTML = attentionSvg(weights, words, selected);
+        out('word').textContent = words[selected];
+        const order = words.map((_, j) => j).sort((a, b) => weights[selected][b] - weights[selected][a]);
+        out('bars').replaceChildren(
+          ...order.map((j) => {
+            const li = document.createElement('li');
+            const w = weights[selected][j];
+            const s = scores[selected][j];
+            li.className = s === -Infinity ? 'masked' : '';
+            li.innerHTML = `<span class="at-name">${words[j]}</span><span class="at-bar"><i style="width:${(w * 100).toFixed(1)}%"></i></span><span class="at-num">${s === -Infinity ? 'masked' : `${Math.round(w * 100)}%`}</span><span class="at-score">${s === -Infinity ? '' : `score ${s.toFixed(2)}`}</span>`;
+            return li;
+          }),
+        );
+        if (status) out('status').textContent = status;
+      };
+
+      svg.addEventListener('click', (event) => {
+        const row = (event.target as Element).closest<SVGGElement>('[data-row]');
+        if (!row) return;
+        selected = Number(row.dataset.row);
+        render();
+      });
+
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
+        if (!button) return;
+        if (button.dataset.ending) {
+          options.ending = button.dataset.ending as Ending;
+          this.querySelectorAll('[data-ending]').forEach((b) => b.setAttribute('aria-pressed', String(b === button)));
+          selected = 7;
+          render(
+            options.causal
+              ? 'Under a causal mask, "it" cannot see the last word, so changing it makes no difference to where "it" looks.'
+              : options.ending === 'wide'
+                ? 'Now it was the street that was too wide, and "it" shifts its weight to "street". One word at the end of the sentence changed what a word in the middle means.'
+                : '"it" puts most of its weight on "animal" again: the animal is what was tired.',
+          );
+        } else if (button.dataset.opt === 'causal') {
+          options.causal = !options.causal;
+          button.setAttribute('aria-pressed', String(options.causal));
+          render(
+            options.causal
+              ? 'With a causal mask, each word sees only itself and the words before it, so the upper triangle is blanked out. This is how a model that writes one word at a time must work. "it" has not seen "tired" yet, and splits its weight between "animal" and "street".'
+              : 'Without a mask every word sees the whole sentence, as in an encoder such as BERT.',
+          );
+        } else if (button.dataset.opt === 'scaled') {
+          options.scaled = !options.scaled;
+          button.setAttribute('aria-pressed', String(options.scaled));
+          render(
+            options.scaled
+              ? 'Scores are divided by √d, the square root of the vector size, before the softmax. Weights stay spread out enough to learn from.'
+              : 'Without dividing by √d, the scores are bigger and the softmax turns nearly all-or-nothing. With hundreds of dimensions the effect is far stronger, and gradients through a saturated softmax vanish.',
+          );
+        }
+      });
+
+      render();
+    }
+  }
+
+  customElements.define('attention-demo', AttentionDemo);
+</script>

@@ -945,3 +945,100 @@ export function treeOutline(node: TreeNode, kind: Impurity): string {
   };
   return `<ul class="dt-tree">${render(node)}</ul>`;
 }
+
+/* ---------- Attention ---------- */
+
+/**
+ * One attention head with hand-set weights, small enough to read. Every token
+ * has a key saying what it is and a query saying what it looks for, over seven
+ * named features. A real model learns vectors like these, with hundreds of
+ * unnamed dimensions.
+ */
+export const attentionFeatures = ['creature', 'place', 'action', 'pronoun', 'tiredness', 'width', 'filler'];
+
+type Vec = number[];
+const feature = (entries: Record<string, number>): Vec => attentionFeatures.map((f) => entries[f] ?? 0);
+
+interface TokenSpec {
+  word: string;
+  key: Vec;
+  query: Vec;
+}
+
+export type Ending = 'tired' | 'wide';
+
+export function attentionTokens(ending: Ending): TokenSpec[] {
+  const filler = { key: feature({ filler: 1 }), query: feature({ filler: 0.6 }) };
+  return [
+    { word: 'The', ...filler },
+    { word: 'animal', key: feature({ creature: 3 }), query: feature({ filler: 1.4 }) },
+    { word: "didn't", key: feature({ action: 1, filler: 0.6 }), query: feature({ action: 2 }) },
+    { word: 'cross', key: feature({ action: 2 }), query: feature({ creature: 1.4, place: 1.4 }) },
+    { word: 'the', ...filler },
+    { word: 'street', key: feature({ place: 3 }), query: feature({ filler: 1.4 }) },
+    { word: 'because', key: feature({ filler: 1 }), query: feature({ action: 1.2 }) },
+    { word: 'it', key: feature({ pronoun: 2.4 }), query: feature({ creature: 1, place: 1 }) },
+    { word: 'was', key: feature({ action: 1 }), query: feature({ pronoun: 1.8 }) },
+    { word: 'too', ...filler },
+    ending === 'tired'
+      ? { word: 'tired', key: feature({ tiredness: 2.5 }), query: feature({ pronoun: 1.2, creature: 1 }) }
+      : { word: 'wide', key: feature({ width: 2.5 }), query: feature({ pronoun: 1.2, place: 1 }) },
+  ];
+}
+
+export interface AttentionOptions {
+  ending: Ending;
+  causal: boolean;
+  scaled: boolean;
+}
+
+/**
+ * The attention weights: for each token, a softmax over the scores q · k of
+ * the tokens it may look at. In this toy, "it" has already absorbed what
+ * comes after it (as an earlier layer would have), so its query leans towards
+ * creatures when the sentence ends "tired" and places when it ends "wide".
+ * Under a causal mask it cannot see the ending, and the hint is lost.
+ */
+export function attention({ ending, causal, scaled }: AttentionOptions) {
+  const tokens = attentionTokens(ending);
+  const queries = tokens.map((t) => [...t.query]);
+  const it = tokens.findIndex((t) => t.word === 'it');
+  if (!causal) {
+    const hint = ending === 'tired' ? 'creature' : 'place';
+    queries[it][attentionFeatures.indexOf(hint)] += 1.6;
+  }
+  const d = attentionFeatures.length;
+  const scores = queries.map((q, i) =>
+    tokens.map((t, j) => (causal && j > i ? -Infinity : q.reduce((sum, qk, f) => sum + qk * t.key[f], 0) / (scaled ? Math.sqrt(d) : 1))),
+  );
+  const weights = scores.map((row) => {
+    const top = Math.max(...row);
+    const exps = row.map((s) => (s === -Infinity ? 0 : Math.exp(s - top)));
+    const total = exps.reduce((a, b) => a + b, 0);
+    return exps.map((e) => e / total);
+  });
+  return { words: tokens.map((t) => t.word), scores, weights };
+}
+
+export const attentionView = { cell: 30, left: 66, top: 62 };
+
+export function attentionSvg(weights: number[][], words: string[], selected: number, view = attentionView): string {
+  const { cell, left, top } = view;
+  const parts: string[] = [];
+  words.forEach((w, j) => {
+    const x = left + j * cell + cell / 2;
+    parts.push(`<text class="at-word at-col${j === selected ? ' on' : ''}" transform="translate(${x - 2} ${top - 6}) rotate(-55)">${w}</text>`);
+  });
+  weights.forEach((row, i) => {
+    const y = top + i * cell;
+    parts.push(`<g class="at-row${i === selected ? ' on' : ''}" data-row="${i}"><rect class="at-hit" x="0" y="${y}" width="${left + words.length * cell}" height="${cell}"/><text class="at-word" x="${left - 8}" y="${y + cell / 2}">${words[i]}</text>`);
+    row.forEach((w, j) => {
+      parts.push(`<rect class="at-cell${weights[i][j] === 0 && j > i ? ' masked' : ''}" x="${left + j * cell + 1}" y="${y + 1}" width="${cell - 2}" height="${cell - 2}" style="fill-opacity:${Math.max(0.03, Math.sqrt(w)).toFixed(3)}"/>`);
+    });
+    parts.push('</g>');
+  });
+  parts.push(`<rect class="at-frame" x="${left}" y="${top + selected * cell}" width="${words.length * cell}" height="${cell}"/>`);
+  return parts.join('');
+}
+
+export const attentionSize = (n: number, view = attentionView) => ({ width: view.left + n * view.cell + 40, height: view.top + n * view.cell + 4 });
