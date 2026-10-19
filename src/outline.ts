@@ -312,6 +312,17 @@ const outline: PartDef[] = [
     ],
   },
   {
+    title: 'Software Engineering',
+    slug: 'software-engineering',
+    summary: 'The tools that let many people change one program without breaking it.',
+    chapters: [
+      {
+        title: 'Tools and Practice',
+        pages: ['Version Control', 'Testing', 'Build Systems'],
+      },
+    ],
+  },
+  {
     title: 'Networking',
     slug: 'networking',
     summary: 'How bytes find their way between machines.',
