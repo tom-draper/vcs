@@ -1,0 +1,150 @@
+---
+description: A decision tree predicts by asking a short series of yes-or-no questions about an example's features. It is grown greedily, choosing at each step the question that best separates the classes, as measured by entropy. Trees are easy to read and quick to train, and in ensembles they are among the strongest models for tabular data.
+difficulty: intermediate
+---
+
+[Linear regression](/machine-learning/linear-regression/) and [neural networks](/machine-learning/neural-networks/) learn by adjusting numbers with [gradient descent](/machine-learning/gradient-descent/). A **decision tree** learns something you could write on a napkin: a flowchart of questions.
+
+```
+Is the email from someone in your contacts?
+├── yes → inbox
+└── no  → Does it contain the word "winner"?
+          ├── yes → spam
+          └── no  → inbox
+```
+
+Each internal node asks about one feature. Each branch is an answer. Each leaf gives a prediction. To classify an example, start at the root and follow the answers down. It is a [binary tree](/data-structures/binary-trees/) whose questions were chosen by looking at data.
+
+## What a split does
+
+For numeric features, a question has the form "is feature < threshold?". Geometrically, that is a straight cut, parallel to one axis, dividing the space in two. Each further question cuts one of the pieces again. A tree carves the space into rectangles (boxes, in more dimensions), and gives each one a label.
+
+<DecisionTreeDemo />
+
+The blue points are mostly in the upper right, with a smaller patch in the upper left, and about one in eight labels has been flipped as noise. With depth 1, the tree asks a single question. With depth 2 it has found the main block. The outline below the plot shows the questions it chose, and how much each reduced the mix of classes.
+
+## Choosing the question
+
+The tree is grown from the top. At each node it has a set of training points, and it needs the one question that splits them into the purest possible groups. It tries every feature and every threshold between neighbouring values, and keeps the best.
+
+"Pure" is measured by **impurity**. The usual measure is [entropy](/information/entropy/), the average surprise of a label drawn from the group:
+
+```
+H = −p log₂ p − (1 − p) log₂ (1 − p)
+```
+
+where p is the fraction of the group in one class. A group that is all one class has entropy 0. A 50/50 mix has entropy 1 bit, the most uncertain it can be.
+
+A split's quality is its **information gain**: the entropy before, minus the average entropy of the two groups after, each weighted by its size.
+
+```
+gain = H(parent) − (n_left / n) · H(left) − (n_right / n) · H(right)
+```
+
+The question with the largest gain is the one that tells you the most about the label. The alternative measure, **Gini impurity**, `2p(1 − p)`, is the chance of mislabelling a point if you guessed labels at random in the group's proportions. It has the same shape as entropy, avoids the logarithm, and nearly always picks the same split. Switch between them in the widget.
+
+<Aside type="note" title="Greedy, not optimal">
+
+Each split is the best one available right now, without looking ahead. Finding the smallest tree that fits the data exactly is [NP-hard](/theory/np-completeness/), so every practical algorithm grows trees greedily. Sometimes a question that looks useless alone, such as the first half of an XOR pattern, is exactly what the next level needs, and a greedy tree misses it.
+
+</Aside>
+
+## When to stop
+
+Left alone, a tree keeps splitting until every leaf is pure. On noisy data that means a leaf for almost every mislabelled point. Slide the depth up to 8. Training accuracy reaches 100%, and the plot fills with slivers drawn around single points. Turn on the test points: these are fresh examples from the same rule, and accuracy on them has fallen. The tree has [overfitted](/machine-learning/overfitting-and-regularisation/), learning the noise as if it were pattern.
+
+There are two ways to stop it.
+
+**Stop early.** Limit the depth, require a minimum number of points in each leaf, or refuse splits whose gain is below a threshold. This is called **pre-pruning**.
+
+**Grow, then prune.** Grow the full tree, then cut back branches that do not improve accuracy on held-out data. **Cost-complexity pruning**, used by CART, adds a penalty per leaf and keeps the tree that minimises error plus penalty, which is the same trade as regularisation elsewhere.
+
+## Forests and boosting
+
+A single tree is **unstable**. Move a few training points and the root question may change, and with it everything below. Its predictions have high variance. The fix is to grow many trees and combine them.
+
+**Random forests** train hundreds of trees, each on a random resample of the data (a **bootstrap**), and each considering only a random subset of features at every split. The trees make different mistakes, and averaging their votes cancels much of the noise.
+
+**Gradient boosting** grows trees one after another, each small and each trained to correct the errors the trees so far still make. It is gradient descent where each step adds a tree instead of adjusting a weight. Libraries such as XGBoost, LightGBM and CatBoost implement it, and on tabular data, such as spreadsheets and database rows, they usually beat neural networks.
+
+## Strengths and weaknesses
+
+| Strength | Weakness |
+| --- | --- |
+| Readable: the model is the flowchart | Axis-parallel cuts struggle with diagonal boundaries |
+| No feature scaling needed: only the order of values matters | A single tree overfits and is unstable |
+| Mixes numbers and categories freely | Predictions are piecewise constant, with no smooth extrapolation |
+| Fast to train and very fast to predict | Greedy growth can miss splits that only pay off later |
+
+## Implementation
+
+```python
+import math
+
+def entropy(labels):
+    n = len(labels)
+    if n == 0:
+        return 0.0
+    p = sum(labels) / n
+    return -sum(q * math.log2(q) for q in (p, 1 - p) if q > 0)
+
+def best_split(points, labels):
+    best = None
+    parent = entropy(labels)
+    for feature in range(len(points[0])):
+        for threshold in sorted({p[feature] for p in points})[1:]:
+            left = [y for p, y in zip(points, labels) if p[feature] < threshold]
+            right = [y for p, y in zip(points, labels) if p[feature] >= threshold]
+            n = len(labels)
+            gain = parent - len(left) / n * entropy(left) - len(right) / n * entropy(right)
+            if best is None or gain > best[0]:
+                best = (gain, feature, threshold)
+    return best
+
+def grow(points, labels, depth):
+    majority = round(sum(labels) / len(labels))
+    split = best_split(points, labels) if depth > 0 else None
+    if split is None or split[0] <= 0:
+        return majority                              # a leaf
+    _, f, t = split
+    yes = [i for i, p in enumerate(points) if p[f] < t]
+    no = [i for i, p in enumerate(points) if p[f] >= t]
+    return (f, t,
+            grow([points[i] for i in yes], [labels[i] for i in yes], depth - 1),
+            grow([points[i] for i in no], [labels[i] for i in no], depth - 1))
+
+def predict(tree, point):
+    while isinstance(tree, tuple):
+        f, t, yes, no = tree
+        tree = yes if point[f] < t else no
+    return tree
+```
+
+This version tries each threshold by rescanning the points, which is slow. Real implementations sort each feature once and sweep through it, updating the class counts on each side as they go.
+
+## Costs
+
+<Ops items={[
+  ['Find the best split', 'O(d · n log n)', 'd features, n points at the node'],
+  ['Grow a tree', 'O(d · n log n · depth)', 'each level sees every point once'],
+  ['Predict', 'O(depth)', 'one comparison per level'],
+  ['Random forest of T trees', 'T × one tree', 'trees train in parallel'],
+]} />
+
+## Where it is used
+
+**Tabular data.** Credit scoring, fraud detection, insurance pricing, click prediction and most data science competitions on structured data are dominated by gradient-boosted trees.
+
+**Where decisions must be explained.** Medical triage rules and loan decisions often use small trees, or rules extracted from them, because a person can follow and check every step.
+
+**Feature importance.** Summing the information gain of every split on each feature ranks which features a model relies on, a quick first look at a new dataset.
+
+**Inside other systems.** Microsoft's Kinect identified body parts in depth images with random forests, and query planners and compilers have used learned trees to choose between strategies.
+
+## Key takeaways
+
+- A decision tree predicts by following a series of yes-or-no questions down to a leaf.
+- Each numeric question cuts the space along one axis, so a tree divides it into boxes.
+- Trees are grown greedily, choosing at each node the split with the largest information gain, the drop in entropy.
+- A fully grown tree overfits. Limit its depth or prune it back.
+- Single trees are unstable. Random forests average many, and gradient boosting adds them one at a time to fix earlier errors.
