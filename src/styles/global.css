@@ -4151,6 +4151,98 @@ main {
   }
 }
 
+/* The hard disk figure. */
+
+.disk-phase,
+.disk-ticket {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.disk-phase {
+  padding: 0.05rem 0.5rem;
+  border-radius: 1rem;
+  background: var(--plate-ink);
+  color: var(--plate);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.disk-phase:empty {
+  display: none;
+}
+
+.disk-phase[data-phase='read'] {
+  background: var(--plate-good);
+}
+
+.disk-ticket {
+  color: var(--plate-ink);
+  font: 700 0.72rem var(--mono);
+  text-shadow: 0 0 3px var(--plate), 0 0 3px var(--plate);
+}
+
+.disk-clock {
+  position: absolute;
+  right: 3.5rem;
+  top: 0.5rem;
+  display: grid;
+  justify-items: end;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.disk-clock b {
+  font-size: 1.15rem;
+}
+
+.disk-clock small {
+  color: var(--plate-ink-2);
+  font-size: 0.72rem;
+}
+
+.disk-split {
+  display: flex;
+  gap: 2px;
+  height: 0.7rem;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--plate-line);
+}
+
+.disk-split i {
+  flex: 0 0 auto;
+  flex-basis: 0;
+  min-width: 0;
+  background: var(--part);
+  transition: flex-grow 0.2s;
+}
+
+.disk-drive .seek { --part: var(--plate-bit-1); }
+.disk-drive .wait { --part: var(--plate-bit-2); }
+.disk-drive .read { --part: var(--plate-good); }
+
+.disk-legend dt::before {
+  content: '';
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-right: 0.4rem;
+  border-radius: 2px;
+  background: var(--part);
+}
+
+.disk-legend dd {
+  font-size: 1.05rem;
+}
+
+.plate.hero.disk-drive .plate-stage {
+  aspect-ratio: 4 / 3;
+}
+
 /* The loss landscape figure. */
 
 .ll-label {
