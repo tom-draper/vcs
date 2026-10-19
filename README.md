@@ -157,8 +157,9 @@ the static `<SkipList nodes={[[3, 1], [9, 3]]} path={[[-1, 2], [9, 2]]} target={
 The computer architecture pages use `<GateDemo />`, `<AdderDemo />`,
 `<RegisterDemo />`, `<CpuDemo />`, `<BranchDemo />` and `<CacheDemo />`, with the
 static `<Gates only={['xor', 'and']} />` and
-`<Pipeline instructions={['add', 'load']} cycle={3} />`. Their simulations are in
-`src/lib/hardware.ts`.
+`<Pipeline instructions={['add', 'load']} cycle={3} />`. `<GpuDemo scenario="divergence" />` shows a warp running both sides of a branch, and
+`<GpuDemo scenario="latency" />` shows warps taking turns to hide memory delays. Their
+simulations are in `src/lib/hardware.ts`.
 
 The operating systems pages use `<SchedulerDemo />`, `<PagingDemo />`,
 `<PageReplacementDemo />` and `<AllocatorDemo />`, backed by `src/lib/os.ts`.
@@ -188,7 +189,8 @@ is a conversation between machines (also `tcp-loss`, `tcp-close`, `udp`, `dns`,
 `dns-cached`, `sockets`, `tls`, `tcp-tls`, `quic` and `quic-0rtt`; add a scenario to
 `sequences` in `src/lib/networking.ts` for another). The rest are `<SubnetDemo />`,
 `<LayersDemo />`, `<CongestionDemo />`, `<HttpDemo />`, `<LoadBalancerDemo />` and
-`<CdnDemo />`.
+`<CdnDemo />`. `<RoutingDemo />` runs distance-vector routing between seven routers in
+rounds, with links the reader can cut to see counting to infinity, and a split-horizon toggle.
 
 The database pages use `<SqlDemo showTables />`, a SQL prompt over two sample tables
 (pass `query` and `tries={[['label', 'SELECT ...']]}` to set the examples). The engine
@@ -200,9 +202,9 @@ in `src/lib/databases.ts` handles `SELECT`, `JOIN`, `LEFT JOIN`, `WHERE`, `GROUP
 
 The distributed systems pages use `<CapDemo />`, `<QuorumDemo />`, `<ClockDemo />`,
 `<HeartbeatDemo />`, `<ReplicationDemo />`, `<PartitionDemo />`, `<HashRingDemo />`,
-`<RaftDemo />`, `<CrdtDemo />` and `<GossipDemo />`, backed by `src/lib/distributed.ts`.
-That file also adds the `2pc-commit`, `2pc-abort`, `2pc-stuck` and `paxos` scenarios
-to `<SequenceDemo>`.
+`<RaftDemo />`, `<CrdtDemo />`, `<GossipDemo />` and `<ElectionDemo />` (the bully algorithm), backed by
+`src/lib/distributed.ts`. That file also adds the `2pc-commit`, `2pc-abort`, `2pc-stuck`,
+`paxos`, `lease-pause` and `lease-fencing` scenarios to `<SequenceDemo>`.
 
 The security pages use `<HashDemo />`, `<BlockModeDemo />`, `<RsaDemo />` (and
 `<RsaDemo mode="sign" />`), `<DiffieHellmanDemo />`, `<PasswordDemo />`,
@@ -218,8 +220,23 @@ squares), `<DescentDemo />` (gradient descent on the error surface, with a choic
 learning rates), `<OverfitDemo />` (polynomial degree and ridge penalty against
 training and test error), `<KMeansDemo />`, `<NetworkDemo />` (a tiny network trained
 live on `line`, `xor` and `circle` data) and `<BackpropDemo />` (one neuron's forward
-and backward pass, node by node). They are backed by `src/lib/learning.ts`, which also
-draws each widget's SVG so the first frame renders without JavaScript.
+and backward pass, node by node), `<DecisionTreeDemo />` (a tree grown by information gain,
+with a depth slider and held-out test points) and `<AttentionDemo />` (one hand-set attention
+head over a sentence, with a causal mask and √d scaling to toggle). They are backed by
+`src/lib/learning.ts`, which also draws each widget's SVG so the first frame renders without
+JavaScript.
+
+The computer graphics pages use `<TransformDemo />` (a letter F through scale, rotate and move
+in a chosen order, with the combined 3×3 matrix), `<RasterDemo />` (drag a triangle over a
+pixel grid: coverage, barycentric colours, 4× multisampling and a depth test),
+`<ShadingDemo />` (a sphere under a draggable light, flat, Gouraud or Phong) and
+`<RayTraceDemo />` (a small ray tracer that renders a row at a time; click a pixel to see its
+rays from above). They are backed by `src/lib/graphics.ts`.
+
+The software engineering pages use `<GitDemo />` (commit, branch, merge and rebase over a
+content-addressed object store), `<TestDemo />` (line coverage against mutation testing) and
+`<BuildDemo />` (an incremental build by timestamps or content hashes, scheduled on 1 to 4
+workers), backed by `src/lib/engineering.ts`.
 
 3D figures are drawn with three.js. Each has a model in `src/lib/<name>.ts` and a scene
 in `src/lib/<name>-scene.ts` that extends `PlateScene` from `src/lib/plate-scene.ts`,
@@ -242,8 +259,10 @@ They sit in a `.plate` and share the `.plate-*` panel classes.
   workloads (in-order, scattered, and scattered but reordered by the drive), splitting
   the time into seeking, waiting and reading. It runs 120 times slower than a real
   disk. The timing model is `src/lib/disk.ts`.
+- `<CoordinateSpaces />` carries three houses and a camera's frustum through model, world,
+  view, clip and screen space, moving every vertex with the matrices in `src/lib/graphics.ts`.
 
-Both take `variant="hero"` as well.
+All of these take `variant="hero"` as well.
 
 The home page shows one of these figures beside the title, picked at random on each
 visit (never the same one twice in a row), and its link goes to the page the figure
