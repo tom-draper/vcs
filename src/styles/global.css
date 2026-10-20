@@ -192,17 +192,13 @@ pre {
 
 /* Search and the theme switch, floating in the top right corner. */
 .tools {
-  position: fixed;
-  top: 0.75rem;
-  right: 1.25rem;
+  position: absolute;
+  top: 1rem;
+  right: 1.5rem;
   z-index: 30;
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  padding: 0.25rem;
-  border-radius: 0.75rem;
-  background: color-mix(in srgb, var(--bg) 85%, transparent);
-  backdrop-filter: blur(8px);
 }
 
 .icon-btn,
@@ -393,7 +389,7 @@ main {
   grid-column: 2;
   grid-row: 1;
   position: sticky;
-  top: calc(var(--topbar-h) + 4.5rem);
+  top: calc(var(--topbar-h) + 3.5rem);
   align-self: start;
   font-size: 0.85rem;
   line-height: 1.4;
@@ -1168,10 +1164,10 @@ main {
   }
 
   .tools {
-    position: static;
-    padding: 0;
-    background: none;
-    backdrop-filter: none;
+    position: fixed;
+    top: 0;
+    right: 0.75rem;
+    height: var(--topbar-h);
   }
 
   .search-btn:hover {
