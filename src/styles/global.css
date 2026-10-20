@@ -148,8 +148,26 @@ pre {
   text-decoration: none;
 }
 
-.brand svg {
+.brand .mark {
   flex: none;
+  width: 22px;
+  height: 22px;
+}
+
+.mark .e1 {
+  stroke: var(--plate-bit-1);
+}
+
+.mark .e2 {
+  stroke: var(--plate-bit-2);
+}
+
+.mark .e3 {
+  stroke: var(--plate-bit-3);
+}
+
+.mark .v {
+  fill: var(--text);
 }
 
 .brand .short {
