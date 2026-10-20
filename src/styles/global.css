@@ -7,8 +7,8 @@
   mark. Interactive figures sit in dark "plates" so they read as instruments
   set into the page.
 
-  The contents run down a tinted spine on the left, which also carries the
-  mark, search and theme switch, so the page itself has no chrome above it.
+  The contents run down a tinted spine on the left, headed by the mark, so the
+  page has no bar above it. Search and the theme switch float top right.
 */
 
 :root {
@@ -72,7 +72,7 @@
   --sidebar-w: 17rem;
   /* Only narrow screens have a bar above the page. */
   --topbar-h: 0rem;
-  --masthead-h: 7.25rem;
+  --masthead-h: 4.75rem;
   --measure: 40rem;
   --font: 'Atkinson Hyperlegible Next', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
@@ -130,8 +130,8 @@ pre {
 
 /* ---------- Masthead ---------- */
 
-/* On wide screens the masthead is the head of the spine: the mark and title,
-   then search and the theme switch. */
+/* On wide screens the masthead is the head of the spine, holding the mark
+   and title. */
 .masthead {
   position: fixed;
   top: 0;
@@ -140,15 +140,12 @@ pre {
   width: var(--sidebar-w);
   height: var(--masthead-h);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
   align-content: start;
-  gap: 1rem 0.25rem;
   padding: 1.35rem 0.75rem 0 1rem;
   background: var(--spine);
 }
 
 .brand {
-  grid-column: 1 / -1;
   display: inline-flex;
   align-items: center;
   gap: 0.7rem;
@@ -193,6 +190,21 @@ pre {
   display: none;
 }
 
+/* Search and the theme switch, floating in the top right corner. */
+.tools {
+  position: fixed;
+  top: 0.75rem;
+  right: 1.25rem;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  backdrop-filter: blur(8px);
+}
+
 .icon-btn,
 .search-btn {
   display: inline-flex;
@@ -212,11 +224,12 @@ pre {
 .icon-btn:hover,
 .search-btn:hover {
   color: var(--text);
-  background: var(--spine-hover);
+  background: var(--bg-soft);
 }
 
 .search-btn {
-  border-color: color-mix(in srgb, var(--border) 70%, transparent);
+  min-width: 13rem;
+  border-color: var(--border);
   background: var(--bg);
 }
 
@@ -380,7 +393,7 @@ main {
   grid-column: 2;
   grid-row: 1;
   position: sticky;
-  top: calc(var(--topbar-h) + 3.5rem);
+  top: calc(var(--topbar-h) + 4.5rem);
   align-self: start;
   font-size: 0.85rem;
   line-height: 1.4;
@@ -1144,8 +1157,14 @@ main {
     display: inline;
   }
 
-  .masthead .icon-btn:hover,
-  .masthead .search-btn:hover {
+  .tools {
+    position: static;
+    padding: 0;
+    background: none;
+    backdrop-filter: none;
+  }
+
+  .search-btn:hover {
     background: var(--bg-soft);
   }
 
@@ -1162,8 +1181,7 @@ main {
     pointer-events: auto;
   }
 
-  .search-btn,
-  .search-btn:hover {
+  .search-btn {
     min-width: 0;
     border-color: transparent;
     background: none;
