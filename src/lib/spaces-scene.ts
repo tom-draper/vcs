@@ -186,7 +186,7 @@ export class SpacesScene extends PlateScene {
   protected resized(aspect: number) {
     const target = this.controls.target;
     const offset = this.camera.position.clone().sub(target);
-    offset.setLength(aspect < 1.2 ? 15 : 11.5);
+    offset.setLength(aspect < 1.4 ? 15 : 11.5);
     this.camera.position.copy(target).add(offset);
   }
 

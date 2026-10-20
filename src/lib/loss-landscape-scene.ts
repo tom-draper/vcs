@@ -258,7 +258,7 @@ export class LossLandscapeScene extends PlateScene {
   protected resized(aspect: number) {
     const target = this.controls.target;
     const offset = this.camera.position.clone().sub(target);
-    offset.setLength(aspect < 1.3 ? 12.5 : 10);
+    offset.setLength(aspect < 1.4 ? 14 : 10);
     this.camera.position.copy(target).add(offset);
   }
 
