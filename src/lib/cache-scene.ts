@@ -407,7 +407,7 @@ export class CacheScene extends PlateScene {
   private compactPose(): Pose {
     const target = new THREE.Vector3(-0.4, 0, -1);
     const fov = this.aspect < 1 ? this.options.fov[1] : this.options.fov[0];
-    const row = stations[RAM].x - CORE_X + 6;
+    const row = stations[RAM].x - CORE_X + 8;
     const distance = Math.max(11, row / (2 * Math.tan(THREE.MathUtils.degToRad(fov / 2)) * this.aspect));
     return { target, position: target.clone().addScaledVector(VIEW, distance), fov };
   }

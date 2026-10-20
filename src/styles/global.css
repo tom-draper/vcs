@@ -3861,15 +3861,11 @@ main {
 }
 
 .plate.hero .plate-stage {
-  aspect-ratio: 1;
+  aspect-ratio: 4 / 3;
   min-height: 0;
 }
 
 /* The memory hierarchy is a long row, so it gets a wider frame than the cube. */
-.plate.hero.cache-hierarchy .plate-stage {
-  aspect-ratio: 4 / 3;
-}
-
 .plate-canvas {
   position: absolute;
   inset: 0;
@@ -4353,10 +4349,6 @@ main {
 
 .disk-legend dd {
   font-size: 1.05rem;
-}
-
-.plate.hero.disk-drive .plate-stage {
-  aspect-ratio: 4 / 3;
 }
 
 /* The loss landscape figure. */

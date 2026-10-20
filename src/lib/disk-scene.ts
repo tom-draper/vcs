@@ -154,6 +154,14 @@ export class DiskScene extends PlateScene {
     this.scene.add(this.arm);
   }
 
+  /** Stand farther back on stages squarer than 16:10, so the chassis stays in view. */
+  protected resized(aspect: number) {
+    const target = this.controls.target;
+    const offset = this.camera.position.clone().sub(target);
+    offset.setLength(aspect < 1.4 ? 5.6 : 4.7);
+    this.camera.position.copy(target).add(offset);
+  }
+
   protected themed() {
     const dark = this.dark;
     (this.chassis.material as THREE.MeshStandardMaterial).color.copy(this.ink('tray'));
