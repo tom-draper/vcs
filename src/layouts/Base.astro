@@ -66,13 +66,13 @@ const favicon = `data:image/svg+xml,${encodeURIComponent(faviconSvg)}`;
   </head>
   <body>
     <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="Show contents" />
-    <header class="topbar">
+    <header class="masthead">
       <label for="nav-toggle" class="icon-btn menu-btn" aria-hidden="true">
         <svg viewBox="0 0 20 20" width="20" height="20"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path></svg>
       </label>
       <a class="brand" href={url('')}>
         <Fragment set:html={mark} />
-        <span class="full">Visual Computer Science</span>
+        <span class="full"><span>Visual</span> <span>Computer Science</span></span>
         <span class="short">VCS</span>
       </a>
       <button id="search-btn" class="search-btn" type="button">

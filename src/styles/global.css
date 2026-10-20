@@ -6,6 +6,9 @@
   they stand for the three bits of the cube figure and the three faces of the
   mark. Interactive figures sit in dark "plates" so they read as instruments
   set into the page.
+
+  The contents run down a tinted spine on the left, which also carries the
+  mark, search and theme switch, so the page itself has no chrome above it.
 */
 
 :root {
@@ -13,6 +16,9 @@
 
   --bg: light-dark(#f3f5f2, #0f1420);
   --bg-soft: light-dark(#e8ece6, #161d2c);
+  /* The spine: the contents column, one shade off the page. */
+  --spine: light-dark(#e9ede7, #121826);
+  --spine-hover: light-dark(#dce2da, #1b2335);
   --surface: light-dark(#fbfcfa, #131a28);
   --border: light-dark(#d3d9d1, #273044);
   --text: light-dark(#18202e, #e5e8ef);
@@ -64,7 +70,9 @@
   --series-6: light-dark(#008300, #008300);
 
   --sidebar-w: 17rem;
-  --topbar-h: 3.5rem;
+  /* Only narrow screens have a bar above the page. */
+  --topbar-h: 0rem;
+  --masthead-h: 7.25rem;
   --measure: 40rem;
   --font: 'Atkinson Hyperlegible Next', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
@@ -120,38 +128,49 @@ pre {
   border-radius: 2px;
 }
 
-/* ---------- Top bar ---------- */
+/* ---------- Masthead ---------- */
 
-.topbar {
+/* On wide screens the masthead is the head of the spine: the mark and title,
+   then search and the theme switch. */
+.masthead {
   position: fixed;
-  inset: 0 0 auto 0;
+  top: 0;
+  left: 0;
   z-index: 30;
-  height: var(--topbar-h);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0 1.25rem;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--border);
+  width: var(--sidebar-w);
+  height: var(--masthead-h);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-content: start;
+  gap: 1rem 0.25rem;
+  padding: 1.35rem 0.75rem 0 1rem;
+  background: var(--spine);
 }
 
 .brand {
+  grid-column: 1 / -1;
   display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
-  margin-right: auto;
+  gap: 0.7rem;
+  justify-self: start;
+  padding: 0 0.35rem;
   color: var(--text);
-  font-size: 1rem;
+  font-size: 1.05rem;
   font-weight: 800;
-  letter-spacing: -0.015em;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
   text-decoration: none;
 }
 
 .brand .mark {
   flex: none;
-  width: 22px;
-  height: 22px;
+  width: 34px;
+  height: 34px;
+}
+
+/* On the spine the title sits on two lines beside the mark. */
+.brand .full > span {
+  display: block;
 }
 
 .mark .e1 {
@@ -193,13 +212,17 @@ pre {
 .icon-btn:hover,
 .search-btn:hover {
   color: var(--text);
-  background: var(--bg-soft);
+  background: var(--spine-hover);
 }
 
 .search-btn {
-  border-color: var(--border);
-  background: var(--surface);
-  min-width: 12rem;
+  border-color: color-mix(in srgb, var(--border) 70%, transparent);
+  background: var(--bg);
+}
+
+.search-btn:hover {
+  background: var(--bg);
+  border-color: var(--text-3);
 }
 
 .search-btn kbd {
@@ -227,7 +250,7 @@ pre {
   pointer-events: none;
 }
 
-.nav-toggle:focus-visible ~ .topbar .menu-btn {
+.nav-toggle:focus-visible ~ .masthead .menu-btn {
   outline: 2px solid var(--accent);
 }
 
@@ -235,14 +258,13 @@ pre {
 
 .sidebar {
   position: fixed;
-  inset: var(--topbar-h) auto 0 0;
+  inset: var(--masthead-h) auto 0 0;
   z-index: 20;
   width: var(--sidebar-w);
-  padding: 1.25rem 0.75rem 3rem 1rem;
+  padding: 0.25rem 0.75rem 3rem 1rem;
   overflow-y: auto;
   overscroll-behavior: contain;
-  background: var(--bg);
-  border-right: 1px solid var(--border);
+  background: var(--spine);
   font-size: 0.9rem;
   line-height: 1.4;
   scrollbar-width: thin;
@@ -282,7 +304,7 @@ pre {
 }
 
 .sidebar summary:hover {
-  background: var(--bg-soft);
+  background: var(--spine-hover);
 }
 
 .sidebar .count {
@@ -1090,17 +1112,61 @@ main {
     padding: 2rem 1rem 3rem;
   }
 
+  :root {
+    --topbar-h: 3.5rem;
+  }
+
+  /* A slim bar: menu, title, search and theme in one row. */
+  .masthead {
+    right: 0;
+    width: auto;
+    height: var(--topbar-h);
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0 0.75rem;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+  }
+
+  .brand {
+    margin-right: auto;
+    padding: 0 0.25rem;
+    font-size: 1rem;
+  }
+
+  .brand .mark {
+    width: 22px;
+    height: 22px;
+  }
+
+  .brand .full > span {
+    display: inline;
+  }
+
+  .masthead .icon-btn:hover,
+  .masthead .search-btn:hover {
+    background: var(--bg-soft);
+  }
+
   .menu-btn {
     display: inline-flex;
     padding: 0 0.4rem;
+  }
+
+  .sidebar {
+    top: var(--topbar-h);
   }
 
   .nav-toggle {
     pointer-events: auto;
   }
 
-  .search-btn {
+  .search-btn,
+  .search-btn:hover {
     min-width: 0;
+    border-color: transparent;
+    background: none;
   }
 
   .search-btn span,
